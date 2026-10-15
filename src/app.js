@@ -78,6 +78,23 @@ const $ = (sel) => document.querySelector(sel);
 const fmt = d3.format(',');
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const uid = () => Math.random().toString(36).slice(2, 10);
+/**
+ * Dates may be a year, a year and month, or a full date: "2019", "2019-04",
+ * "2019-04-12" ("/" and "." work as separators too). Returns '' for empty,
+ * null for anything else.
+ */
+function normDate(text) {
+  const t = String(text || '').trim().replace(/[/.]/g, '-');
+  if (!t) return '';
+  const m = t.match(/^(\d{4})(?:-(\d{1,2})(?:-(\d{1,2}))?)?$/);
+  if (!m) return null;
+  const [, y, mo, d] = m;
+  if (mo && (+mo < 1 || +mo > 12)) return null;
+  if (d && (+d < 1 || +d > 31)) return null;
+  return [y, mo && mo.padStart(2, '0'), d && d.padStart(2, '0')].filter(Boolean).join('-');
+}
+const DATE_HINT = 'YYYY, YYYY-MM or YYYY-MM-DD';
+
 const pct = (a, b) => (b ? Math.round((a / b) * 100) : 0);
 
 const VISIT_MODES = {
@@ -874,8 +891,19 @@ function initPanel() {
     else if (action === 'city-key') {
       const c = allCities(true).find((x) => x.key === value);
       if (c) {
-        select(c.cityId ? { city: c.cityId } : { cityKey: c.key });
+        // One added entry and nothing else: open its editor directly.
+        select(c.visits.length === 1 && !c.trips.length && !c.airports.length ? { city: c.cityId } : { cityKey: c.key });
         M.flyTo([c.lon, c.lat], 6);
+      }
+    } else if (action === 'add-visit') {
+      const c = allCities(true).find((x) => x.key === value);
+      if (c) {
+        const id = uid();
+        state.cities.push({ id, name: c.name, lon: +c.lon.toFixed(5), lat: +c.lat.toFixed(5), date: '', mode: '', days: 1 });
+        saveCities();
+        evidenceCache = null;
+        update();
+        select({ city: id });
       }
     } else if (action === 'quick-city') {
       state.quickCity = true;
@@ -1094,8 +1122,13 @@ function renderOverview() {
         `${idx >= 0 ? esc(state.tcc[idx].name) : ''}${c.modes.size ? ` · ${modeIcons([...c.modes])}` : ''}`,
         `${c.airports.length ? `<p>✈️ Airports: ${c.airports.map((a) => `<a href="#" class="link-btn" data-action="airport" data-value="${a}">${a}</a> <span class="muted small">${esc(state.airports[a][0])}</span>`).join(', ')}</p>` : ''}
          ${c.trips.length ? `<p>Trips: ${c.trips.map((t) => `<a href="#" class="link-btn" data-action="trip" data-value="${t.id}">${MODES[t.mode]?.icon || ''} ${esc(t.name || t.date)}</a>`).join(', ')}</p>` : ''}
-         <div class="city-edit"><label>Days there <input type="number" min="1" max="999" step="1" data-city-key-days="${esc(c.key)}" value="${c.days || 1}" /></label>
-         <p class="muted small">More days make the city glow more on the heatmap.</p></div>`,
+         ${c.visits.length ? `<p class="small">Visits:</p><div class="list">${c.visits
+           .slice()
+           .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+           .map((v) => `<div class="list-item" data-action="city" data-value="${v.id}"><div><div>${esc(v.date || 'No date')}</div><div class="sub">${v.days} day${v.days === 1 ? '' : 's'}${v.mode ? ` · ${VISIT_MODES[v.mode]?.icon || ''} ${VISIT_MODES[v.mode]?.label || ''}` : ''}</div></div><span class="link-btn">edit</span></div>`)
+           .join('')}</div>` : ''}
+         <div class="row"><button type="button" data-action="add-visit" data-value="${esc(c.key)}">+ Add a visit${c.visits.length ? '' : ' (date, days, how)'}</button></div>
+         <p class="muted small">Days add up over visits and make the city glow more on the heatmap.</p>`,
       );
       return;
     }
@@ -1109,7 +1142,7 @@ function renderOverview() {
         `🏙️ ${esc(c.name)}`,
         `${c.date ? esc(c.date) : 'No date'}${idx >= 0 ? ` · ${esc(state.tcc[idx].name)}` : ''}${c.mode ? ` · ${VISIT_MODES[c.mode]?.icon || ''} ${VISIT_MODES[c.mode]?.label || ''}` : ''}`,
         `<div class="city-edit">
-          <label>Date <input type="date" data-city-date="${c.id}" value="${esc(c.date || '')}" /></label>
+          <label>Date <input data-city-date="${c.id}" value="${esc(c.date || '')}" placeholder="${DATE_HINT}" inputmode="numeric" /></label>
           <label>Days there <input type="number" min="1" max="999" step="1" data-city-days="${c.id}" value="${+c.days || 1}" /></label>
           <p class="small muted">How you got there:</p>
           <div class="mode-btns">
@@ -1119,7 +1152,8 @@ function renderOverview() {
             ${c.mode ? `<button type="button" data-action="set-city-mode" data-value="${c.id}:">Clear</button>` : ''}
           </div>
         </div>
-        <div class="row"><button type="button" data-action="delete-city" data-value="${c.id}">Delete city</button></div>`,
+        <div class="row"><button type="button" data-action="delete-city" data-value="${c.id}">Delete this visit</button>
+          <button type="button" data-action="city-key" data-value="${esc(cityKey(cleanCity(c.name)))}">All visits &amp; trips here</button></div>`,
       );
       return;
     }
@@ -1470,14 +1504,17 @@ function initTripsTab() {
     }
   });
   $('#details').addEventListener('change', (ev) => {
-    const { cityDate, cityDays, cityKeyDays } = ev.target.dataset;
+    const { cityDate, cityDays } = ev.target.dataset;
     const days = Math.max(1, Math.round(+ev.target.value) || 1);
     const value = ev.target.value;
     // Re-render after the event: the input that fired it gets replaced.
     setTimeout(() => {
-      if (cityDate) updateCity(cityDate, { date: value });
+      if (cityDate) {
+        const date = normDate(value);
+        if (date === null) return alert(`Use ${DATE_HINT}, e.g. 2019 or 2019-04.`);
+        updateCity(cityDate, { date });
+      }
       else if (cityDays) updateCity(cityDays, { days });
-      else if (cityKeyDays) setDerivedCityDays(cityKeyDays, days);
     });
   });
   $('#cities-panel').addEventListener('keydown', (ev) => {
@@ -1538,21 +1575,24 @@ function knownCity(name, lon, lat) {
   return allCities(true).find((c) => c.key === key || (lon != null && distanceKm([c.lon, c.lat], [lon, lat]) < 5));
 }
 
-/** Adds cities, skipping ones already visited. Returns the names skipped. */
-function addCities(list, { mode = state.cityForm.mode, date = state.cityForm.date, days = +state.cityForm.days || 1 } = {}) {
+/**
+ * Adds cities. A city you already have is only added again as a new visit
+ * when it has a date that isn't recorded yet. Returns the names skipped.
+ */
+function addCities(list, { mode = state.cityForm.mode, date = normDate(state.cityForm.date) || '', days = +state.cityForm.days || 1 } = {}) {
   const skipped = [];
   for (const r of list) {
     // Strip the airport code prefix search results get ("CPH · Copenhagen").
     const name = String(r.name).replace(/^[A-Z0-9]{3} · /, '');
     const known = knownCity(name, +r.lon, +r.lat);
-    if (known) {
-      skipped.push(known.name);
+    if (known && (!date || known.visits.some((v) => v.date === date))) {
+      skipped.push(date ? `${known.name} (${date})` : known.name);
       continue;
     }
     state.cities.push({ id: uid(), name, lon: +(+r.lon).toFixed(5), lat: +(+r.lat).toFixed(5), date, mode, days });
   }
   state.cityResults = [];
-  state.cityNote = skipped.length ? `Already visited, not added again: ${skipped.join(', ')}.` : '';
+  state.cityNote = skipped.length ? `Already recorded, not added again: ${skipped.join(', ')}. Add a date to record another visit.` : '';
   if (skipped.length === list.length) {
     renderCities();
     return skipped;
@@ -1570,19 +1610,6 @@ async function addCityAt(lon, lat) {
   addCity({ name, lon, lat });
 }
 
-/** Days for a city that comes from a trip or flight: stored as an added city entry. */
-function setDerivedCityDays(key, days) {
-  const c = allCities(true).find((x) => x.key === key);
-  if (!c) return;
-  if (c.cityId) return updateCity(c.cityId, { days });
-  const id = uid();
-  state.cities.push({ id, name: c.name, lon: +c.lon.toFixed(5), lat: +c.lat.toFixed(5), date: '', mode: '', days });
-  saveCities();
-  evidenceCache = null;
-  update();
-  select({ city: id });
-}
-
 /** Changes a city you added (date, travel mode, days) and saves it. */
 function updateCity(id, changes) {
   const c = state.cities.find((x) => x.id === id);
@@ -1597,7 +1624,7 @@ function updateCity(id, changes) {
 
 function deleteCity(id) {
   const c = state.cities.find((x) => x.id === id);
-  if (!c || !confirm(`Delete city "${c.name}"?`)) return;
+  if (!c || !confirm(`Delete this visit to ${c.name}${c.date ? ` (${c.date})` : ""}?`)) return;
   state.cities = state.cities.filter((x) => x.id !== id);
   saveCities();
   evidenceCache = null;
@@ -1635,6 +1662,10 @@ async function quickAddCities(text) {
 
 /** "Paris, Lyon" adds each city (best match); a single name shows matches to pick from. */
 async function addTypedCities() {
+  if (normDate(state.cityForm.date) === null) {
+    $('#city-results').innerHTML = `<p class="warn">Date: use ${DATE_HINT}, e.g. 2019 or 2019-04.</p>`;
+    return;
+  }
   const input = $('#city-search');
   const parts = splitStops(input?.value.trim() || '');
   if (!parts.length) return;
@@ -1687,7 +1718,7 @@ function cityForm() {
         <input id="city-search" type="search" placeholder="e.g. Paris, Lyon, Kyoto" autocomplete="off" />
         <button type="button" data-action="city-add">Add</button>
       </div>
-      <input id="city-date" type="date" title="Date (optional)" />
+      <input id="city-date" placeholder="Date: ${DATE_HINT}" title="Optional: a year, year and month, or full date" inputmode="numeric" />
       <input id="city-days" type="number" min="1" step="1" placeholder="Days (optional)" title="Days spent there (optional, default 1)" />
       <select id="city-mode" title="How you got there (optional)">
         <option value="">How? (optional)</option>
@@ -1729,15 +1760,19 @@ function allCities(allYears = false) {
     const key = cityKey(name);
     let hit = out.find((c) => c.key === key || distanceKm([c.lon, c.lat], [lon, lat]) < 5);
     if (!hit) {
-      hit = { name, key, lon, lat, via: new Set(), modes: new Set(), trips: [], airports: [], date: '', days: 0 };
+      hit = { name, key, lon, lat, via: new Set(), modes: new Set(), trips: [], airports: [], visits: [], date: '', days: 0 };
       out.push(hit);
     }
     hit.via.add(via);
     if (mode) hit.modes.add(mode);
     if (extra.trip && !hit.trips.includes(extra.trip)) hit.trips.push(extra.trip);
     if (extra.airport) hit.airports.push(extra.airport);
-    if (extra.cityId && !hit.cityId) Object.assign(hit, { cityId: extra.cityId, date: extra.date || '' });
-    if (extra.days) hit.days = Math.max(hit.days, extra.days);
+    if (extra.cityId) {
+      // Each added entry is one visit; days of all visits add up.
+      hit.visits.push({ id: extra.cityId, date: extra.date || '', days: extra.days || 1, mode });
+      if (!hit.cityId) Object.assign(hit, { cityId: extra.cityId, date: extra.date || '' });
+      hit.days += extra.days || 1;
+    }
   };
   for (const c of state.cities) if (allYears || inYear(c.date)) add(c.name, c.lon, c.lat, 'city', c.mode, { cityId: c.id, date: c.date, days: +c.days || 0 });
   for (const t of allYears ? state.trips : filteredTrips()) for (const w of t.waypoints) add(w.name, w.lon, w.lat, 'trip', TRIP_TO_VISIT[t.mode], { trip: t });
@@ -1767,7 +1802,7 @@ function cityList() {
       }</div>
       <div id="quick-city-msg">${state.cityNote ? `<p class="muted small">${esc(state.cityNote)}</p>` : ''}</div>`;
     })()}
-    <h2>Extra cities you added (${list.length})</h2>
+    <h2>City visits you added (${list.length})</h2>
     <div class="list">
       ${list
         .map(
@@ -1906,6 +1941,12 @@ async function saveDraft() {
   let { coords, routedBy } = d;
   let warning = null;
   if (!keepTrack) ({ coords, routedBy, warning } = await routeTrip(d.mode, d.waypoints));
+  const date = normDate(d.date);
+  if (date === null) {
+    msg.innerHTML = `<p class="warn">Date: use ${DATE_HINT}, e.g. 2019 or 2019-04.</p>`;
+    return;
+  }
+  d.date = date;
   // Without a name, call it after its start and end ("Stockholm – Lund").
   const name = d.name.trim() || (d.waypoints.length > 1 ? `${d.waypoints[0].name} – ${d.waypoints[d.waypoints.length - 1].name}` : '');
   const trip = { id: d.id || uid(), mode: d.mode, name, date: d.date, waypoints: d.waypoints, coords, routedBy };
@@ -1966,7 +2007,7 @@ function renderTrips() {
           <label>Type <select data-field="mode">${Object.entries(MODES)
             .map(([k, m]) => `<option value="${k}" ${k === d.mode ? 'selected' : ''}>${m.icon} ${m.label}</option>`)
             .join('')}</select></label>
-          <label>Date <input type="date" data-field="date" value="${esc(d.date)}" /></label>
+          <label>Date <input data-field="date" value="${esc(d.date)}" placeholder="${DATE_HINT}" inputmode="numeric" /></label>
           <label class="full">Name <input data-field="name" value="${esc(d.name)}" placeholder="Optional, e.g. Norway road trip" /></label>
         </div>
         <h2>Route</h2>
@@ -2026,12 +2067,14 @@ function renderTripList() {
     f,
   }));
   const trips = filteredTrips().map((t) => ({ kind: t.mode, date: t.date || '', time: '', km: lineLengthKm(t.coords), t }));
-  const all = [...flights, ...trips];
+  const visits = state.cities.filter((c) => inYear(c.date)).map((c) => ({ kind: 'city', date: c.date || '', time: '', km: 0, c }));
+  const all = [...flights, ...trips, ...visits];
   const kinds = [['all', 'All', all.length], ['flight', '✈️ Flights', flights.length]];
   for (const [k, m] of Object.entries(MODES)) {
     const n = trips.filter((x) => x.kind === k).length;
     if (n) kinds.push([k, `${m.icon} ${m.label}`, n]);
   }
+  if (visits.length) kinds.push(['city', '🏙️ Cities', visits.length]);
   if (!kinds.some(([k]) => k === state.tripFilter)) state.tripFilter = 'all';
   const km = (list) => fmt(Math.round(d3.sum(list, (x) => x.km)));
   $('#trip-filter').innerHTML = kinds
@@ -2041,6 +2084,11 @@ function renderTripList() {
     .filter((x) => state.tripFilter === 'all' || x.kind === state.tripFilter)
     .sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time));
   const byYear = d3.groups(shown, (x) => (x.date || '').slice(0, 4) || 'No date');
+  const count = (list) => {
+    const j = list.filter((x) => x.kind !== 'city').length;
+    const c = list.length - j;
+    return [j && `${j} journey${j === 1 ? '' : 's'}`, c && `${c} cit${c === 1 ? 'y' : 'ies'}`].filter(Boolean).join(' · ');
+  };
   const row = (x) =>
     x.kind === 'flight'
       ? `<div class="list-item" data-action="flight-route" data-value="${x.f.from}|${x.f.to}">
@@ -2048,14 +2096,20 @@ function renderTripList() {
           <div class="sub">${esc(x.date)}${x.f.flightNo ? ` · ${esc(x.f.flightNo)}` : ''}${x.f.airline ? ` · ${esc(x.f.airline)}` : ''}</div></div>
           <span class="pill">${x.km ? `${fmt(Math.round(x.km))} km` : 'local'}</span>
         </div>`
-      : `<div class="list-item" data-action="trip" data-value="${x.t.id}">
+      : x.kind === 'city'
+        ? `<div class="list-item" data-action="city" data-value="${x.c.id}">
+            <div><div>🏙️ ${esc(x.c.name)}</div>
+            <div class="sub">${esc(x.date || 'No date')} · ${+x.c.days || 1} day${(+x.c.days || 1) === 1 ? '' : 's'}${x.c.mode ? ` · ${VISIT_MODES[x.c.mode]?.icon || ''} ${VISIT_MODES[x.c.mode]?.label || ''}` : ''}</div></div>
+            <span class="pill">city</span>
+          </div>`
+        : `<div class="list-item" data-action="trip" data-value="${x.t.id}">
           <div><div>${MODES[x.t.mode]?.icon || ''} ${esc(x.t.name || 'Trip')}</div>
           <div class="sub">${esc(x.date || 'No date')}${x.t.routedBy === 'straight' ? ' · straight lines' : ''}</div></div>
           <span class="pill" style="border-color:${MODES[x.t.mode]?.color}">${fmt(Math.round(x.km))} km</span>
         </div>`;
   $('#trips-list').innerHTML = shown.length
-    ? `<p class="muted small">${shown.length} journeys · ${km(shown)} km</p>` +
-      byYear.map(([year, list]) => `<h2>${esc(year)} <span class="muted">· ${list.length} · ${km(list)} km</span></h2><div class="list">${list.map(row).join('')}</div>`).join('')
+    ? `<p class="muted small">${count(shown)} · ${km(shown)} km</p>` +
+      byYear.map(([year, list]) => `<h2>${esc(year)} <span class="muted">· ${count(list)} · ${km(list)} km</span></h2><div class="list">${list.map(row).join('')}</div>`).join('')
     : '<p class="muted">Nothing here yet. Add trips and flights in the <a href="#" class="link-btn" data-action="goto-add">Add</a> tab.</p>';
 }
 
