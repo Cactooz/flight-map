@@ -5,16 +5,18 @@
 //   data/tcc-shapes.json  TopoJSON, one geometry per TCC destination
 //   vendor/*.js           d3 + topojson-client browser builds
 //
-// Sources: OurAirports (ourairports-data-js), Natural Earth ADM1 polygons
-// (@geo-insight/data) and Natural Earth countries (world-atlas).
+// Sources: OurAirports (ourairports-data-js), Natural Earth 10m ADM1 polygons
+// (downloaded once into .cache/; @geo-insight/data says which countries to
+// take from it) and Natural Earth countries (world-atlas).
 
-import { readFileSync, writeFileSync, mkdirSync, copyFileSync, readdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, copyFileSync, readdirSync, existsSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { geoArea, geoCentroid } from 'd3-geo';
 import { group as d3group } from 'd3-array';
 import { topology } from 'topojson-server';
-import { presimplify, simplify, quantile } from 'topojson-simplify';
+import { presimplify, simplify, sphericalTriangleArea } from 'topojson-simplify';
 import { feature, merge } from 'topojson-client';
 import { build } from 'esbuild';
 import { createRequire } from 'node:module';
@@ -176,15 +178,30 @@ function addGeometry(geom, cc, region) {
   }
 }
 
+// Full-resolution Natural Earth 10m ADM1 (@geo-insight/data is the same data
+// heavily simplified, which turned Andorra into a triangle and lost
+// Singapore). Only countries @geo-insight/data has ADM1 for are taken from it,
+// so the codes match the rules in src/tcc-list.js; the rest (Kosovo,
+// Somaliland, ...) come from world-atlas below.
+const NE_ADM1_URL = 'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson';
+const neAdm1Path = join(root, '.cache', 'ne_10m_admin_1_states_provinces.geojson');
+if (!existsSync(neAdm1Path)) {
+  mkdirSync(dirname(neAdm1Path), { recursive: true });
+  console.log('Downloading Natural Earth 10m ADM1 (~40 MB)...');
+  execFileSync('curl', ['-sSfL', '-o', neAdm1Path, NE_ADM1_URL], { stdio: 'inherit' });
+}
 const adm1Dir = join(pkgDir('@geo-insight/data'), 'dist', 'assets', 'adm1');
 const adm0WithAdm1 = new Set();
+const adm0IsoWithAdm1 = new Set();
 for (const file of readdirSync(adm1Dir)) {
   const fc = readJson(join(adm1Dir, file));
   adm0WithAdm1.add(fc.adm0);
-  for (const f of fc.features) {
-    const iso = f.properties.iso || '';
-    addGeometry(f.geometry, iso.split('-')[0], iso);
-  }
+  adm0IsoWithAdm1.add(fc.adm0iso);
+}
+for (const f of readJson(neAdm1Path).features) {
+  if (!adm0IsoWithAdm1.has(f.properties.adm0_a3)) continue;
+  const iso = f.properties.iso_3166_2 || '';
+  addGeometry(f.geometry, iso.split('-')[0], iso);
 }
 
 // Countries / disputed areas that have no ADM1 file come from world-atlas.
@@ -244,8 +261,12 @@ const features = [...geomsByEntry].map(([e, geoms]) => ({
 }));
 
 let topo = topology({ tcc: { type: 'FeatureCollection', features } });
-topo = presimplify(topo);
-topo = simplify(topo, quantile(topo, 0.3));
+// Drop points whose triangle covers less than SIMPLIFY_KM2 km² (spherical
+// area), so small countries like Andorra and Singapore keep a real outline
+// while coastlines stay light enough to load quickly.
+const SIMPLIFY_KM2 = +(process.env.SIMPLIFY_KM2 || 1);
+topo = presimplify(topo, sphericalTriangleArea);
+topo = simplify(topo, SIMPLIFY_KM2 / 6371 ** 2);
 
 // Simplification can collapse tiny islands into rings with the wrong winding
 // order (d3 would then fill the whole globe). Fix those up and re-encode.
