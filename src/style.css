@@ -1,6 +1,7 @@
 :root {
   --bg: #0b1220;
   --ocean: #1f3b5a;
+  --space: #07090e;
   --land: #3b4250;
   --land-border: #596274;
   --land-hover: #26344b;
@@ -58,7 +59,8 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; font-si
 
 /* ------------------------------------------------------------------ map */
 
-#map-wrap { position: relative; overflow: hidden; background: var(--ocean); }
+/* Shows around the globe (the map canvas is transparent outside the sphere). */
+#map-wrap { position: relative; overflow: hidden; background: var(--space); }
 #map { position: absolute; inset: 0; }
 #map-wrap.adding .maplibregl-canvas { cursor: crosshair; }
 
