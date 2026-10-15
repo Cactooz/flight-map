@@ -395,3 +395,6 @@ button.primary:hover { background: #ffbe5c; }
 .city-edit input[type='number'] { width: 80px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; }
 .city-edit label + label { margin-top: 6px; }
 .city-chips .pill[data-action] { cursor: pointer; }
+.rename { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
+.rename input,
+.city-edit input:not([type]) { flex: 1; min-width: 0; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; color: inherit; }

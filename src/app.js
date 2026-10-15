@@ -55,6 +55,7 @@ const state = {
   sel: { airport: null, route: null, trip: null, dest: null, anyAirport: null, city: null },
   cities: [], // cities you visited: { id, name, lon, lat, date, mode }
   citySource: 'bundled',
+  cityRenames: {}, // cityKey of a stop/airport/added name -> the city name to show
   cityAdd: false, // clicking the map adds a city
   cityResults: [],
   cityForm: { date: '', mode: '', days: '' },
@@ -215,7 +216,7 @@ async function init() {
 
   state.bundledCities = cities;
   const savedCities = store.get(LS_CITIES, null);
-  state.cities = savedCities?.cities || cities;
+  setCities(savedCities || cities);
   state.citySource = savedCities ? 'edited' : 'bundled';
 
   const known = new Set(tcc.map((t) => t.id));
@@ -1135,6 +1136,7 @@ function renderOverview() {
            .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
            .map((v) => `<div class="list-item" data-action="city" data-value="${v.id}"><div><div>${esc(v.date || 'No date')}</div><div class="sub">${v.days} day${v.days === 1 ? '' : 's'}${v.mode ? ` · ${VISIT_MODES[v.mode]?.icon || ''} ${VISIT_MODES[v.mode]?.label || ''}` : ''}</div></div><span class="link-btn">edit</span></div>`)
            .join('')}</div>` : ''}
+         <label class="small rename">Name <input data-city-rename="${esc(c.key)}" value="${esc(c.name)}" title="Rename this city, e.g. Lund C to Lund" /></label>
          <div class="row"><button type="button" data-action="add-visit" data-value="${esc(c.key)}">+ Add a visit${c.visits.length ? '' : ' (date, days, how)'}</button></div>
          <p class="muted small">Days add up over visits and make the city glow more on the heatmap.</p>`,
       );
@@ -1150,6 +1152,7 @@ function renderOverview() {
         `🏙️ ${esc(c.name)}`,
         `${c.date ? esc(c.date) : 'No date'}${idx >= 0 ? ` · ${esc(state.tcc[idx].name)}` : ''}${c.mode ? ` · ${VISIT_MODES[c.mode]?.icon || ''} ${VISIT_MODES[c.mode]?.label || ''}` : ''}`,
         `<div class="city-edit">
+          <label>Name <input data-city-rename="${esc(cityKey(cityName(c.name)))}" value="${esc(cityName(c.name))}" /></label>
           <label>Date <input data-city-date="${c.id}" value="${esc(c.date || '')}" placeholder="${DATE_HINT}" inputmode="numeric" /></label>
           <label>Days there <input type="number" min="1" max="999" step="1" data-city-days="${c.id}" value="${+c.days || 1}" /></label>
           <p class="small muted">How you got there:</p>
@@ -1161,7 +1164,7 @@ function renderOverview() {
           </div>
         </div>
         <div class="row"><button type="button" data-action="delete-city" data-value="${c.id}">Delete this visit</button>
-          <button type="button" data-action="city-key" data-value="${esc(cityKey(cleanCity(c.name)))}">All visits &amp; trips here</button></div>`,
+          <button type="button" data-action="city-key" data-value="${esc(cityKey(cityName(c.name)))}">All visits &amp; trips here</button></div>`,
       );
       return;
     }
@@ -1473,15 +1476,19 @@ function initTripsTab() {
       $('#trip-msg').innerHTML = `<p class="warn">${esc(err.message)}</p>`;
     }
   };
-  $('#export-cities').onclick = () => download('cities.json', JSON.stringify(state.cities, null, 1) + '\n');
+  $('#export-cities').onclick = () => {
+    // A plain list unless you renamed cities; then the renames come along.
+    const data = Object.keys(state.cityRenames).length ? { cities: state.cities, renames: state.cityRenames } : state.cities;
+    download('cities.json', JSON.stringify(data, null, 1) + '\n');
+  };
   $('#import-cities').onchange = async (ev) => {
     const file = ev.target.files[0];
     ev.target.value = '';
     if (!file) return;
     try {
       const cities = JSON.parse(await file.text());
-      if (!Array.isArray(cities)) throw new Error('Expected a JSON array of cities.');
-      state.cities = cities;
+      if (!Array.isArray(cities) && !Array.isArray(cities?.cities)) throw new Error('Expected a JSON array of cities.');
+      setCities(cities);
       saveCities();
       evidenceCache = null;
       buildYearFilter();
@@ -1492,7 +1499,7 @@ function initTripsTab() {
   };
   $('#reset-cities').onclick = () => {
     store.set(LS_CITIES, null);
-    state.cities = state.bundledCities;
+    setCities(state.bundledCities);
     state.citySource = 'bundled';
     evidenceCache = null;
     update();
@@ -1512,7 +1519,7 @@ function initTripsTab() {
     }
   });
   $('#details').addEventListener('change', (ev) => {
-    const { cityDate, cityDays } = ev.target.dataset;
+    const { cityDate, cityDays, cityRename } = ev.target.dataset;
     const days = Math.max(1, Math.round(+ev.target.value) || 1);
     const value = ev.target.value;
     // Re-render after the event: the input that fired it gets replaced.
@@ -1523,6 +1530,7 @@ function initTripsTab() {
         updateCity(cityDate, { date });
       }
       else if (cityDays) updateCity(cityDays, { days });
+      else if (cityRename) renameCity(cityRename, value);
     });
   });
   $('#cities-panel').addEventListener('keydown', (ev) => {
@@ -1560,9 +1568,36 @@ function onDraftInput(ev) {
 
 // ---------------------------------------------------------------- cities
 
+/** cities.json is a list of cities, or { cities, renames } once cities were renamed. */
+function setCities(data) {
+  state.cities = Array.isArray(data) ? data : data?.cities || [];
+  state.cityRenames = (!Array.isArray(data) && data?.renames) || {};
+}
+
+/**
+ * Renames a city everywhere: trip stops, airport cities and added visits that
+ * make up this city all show under the new name. Renaming to a city you
+ * already have merges the two.
+ */
+function renameCity(key, name) {
+  const c = allCities(true).find((x) => x.key === key);
+  name = cleanCity(name);
+  if (!c || !name || name === c.name) return;
+  for (const src of c.srcKeys) state.cityRenames[src] = name;
+  for (const v of c.visits) {
+    const e = state.cities.find((x) => x.id === v.id);
+    if (e) e.name = name;
+  }
+  state.cityRenames[cityKey(name)] = name;
+  saveCities();
+  evidenceCache = null;
+  update();
+  if (state.sel.cityKey) select({ cityKey: cityKey(name) });
+}
+
 function saveCities() {
   state.citySource = 'edited';
-  if (!store.set(LS_CITIES, { cities: state.cities })) alert('Could not save cities in this browser. Export cities.json to keep them.');
+  if (!store.set(LS_CITIES, { cities: state.cities, renames: state.cityRenames })) alert('Could not save cities in this browser. Export cities.json to keep them.');
 }
 
 function setCityAdd(on) {
@@ -1579,7 +1614,7 @@ function addCity(r) {
 
 /** A city you've already been to (any year): same name, or within 5 km. */
 function knownCity(name, lon, lat) {
-  const key = cityKey(cleanCity(name));
+  const key = cityKey(cityName(name));
   return allCities(true).find((c) => c.key === key || (lon != null && distanceKm([c.lon, c.lat], [lon, lat]) < 5));
 }
 
@@ -1738,13 +1773,23 @@ function cityForm() {
     ${state.cityNote ? `<p class="muted small">${esc(state.cityNote)}</p>` : ''}`;
 }
 
+// Station words dropped from the end of stop names to get the city
+// ("Lund Centralstation" -> "Lund"). Anything else: rename the city.
+const STATION_SUFFIX =
+  /(\s+|-)(HB|SBB|C|H|Hbf\.?|Hauptbahnhof|Bahnhof|Bf\.?|Centraal( Station)?|Central( Station)?|Centralstation(en)?|Central Railway Station|Railway Station|Train Station|Bus Station|Station|station|Stasjon|Sentralstasjon|Hovedbanegård|Banegård|Rautatieasema|Keskusrautatieasema|Gare|Stazione|Estación|Ferry Terminal)$/i;
+
 // "Zürich HB" -> "Zürich", "Stockholm (Stadsgården)" -> "Stockholm", "Åbo / Turku" -> "Åbo".
+// Then any rename you made in the Cities panel ("Lund C" -> "Lund").
+const cityName = (name) => {
+  const clean = cleanCity(name);
+  return state.cityRenames[cityKey(clean)] || clean;
+};
 const cleanCity = (name) =>
   String(name || '')
     .replace(/^[A-Z0-9]{3} · /, '')
     .replace(/\s*\(.*\)\s*$/, '')
     .split(' / ')[0]
-    .replace(/\s+(HB|SBB|Centraal|Central|C|station|Station|Hbf|Bahnhof|Gare)$/, '')
+    .replace(STATION_SUFFIX, '')
     .trim();
 
 /** The city an airport serves (resolved at build time, see src/airport-cities.js). */
@@ -1763,15 +1808,17 @@ const cityKey = (name) => name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').
 function allCities(allYears = false) {
   const out = [];
   const add = (name, lon, lat, via, mode, extra = {}) => {
-    name = cleanCity(name);
+    const src = cityKey(cleanCity(name));
+    name = cityName(name);
     if (!name || name.startsWith('(')) return;
     const key = cityKey(name);
     let hit = out.find((c) => c.key === key || distanceKm([c.lon, c.lat], [lon, lat]) < 5);
     if (!hit) {
-      hit = { name, key, lon, lat, via: new Set(), modes: new Set(), trips: [], airports: [], visits: [], date: '', days: 0 };
+      hit = { name, key, lon, lat, srcKeys: new Set(), via: new Set(), modes: new Set(), trips: [], airports: [], visits: [], date: '', days: 0 };
       out.push(hit);
     }
     hit.via.add(via);
+    hit.srcKeys.add(src);
     if (mode) hit.modes.add(mode);
     if (extra.trip && !hit.trips.includes(extra.trip)) hit.trips.push(extra.trip);
     if (extra.airport) hit.airports.push(extra.airport);

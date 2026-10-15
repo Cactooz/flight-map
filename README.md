@@ -31,7 +31,9 @@ have visited, on an OpenStreetMap basemap.
   visited city. Add other cities in the *Add* tab, by searching or by clicking
   the map, with an optional date and how you got there. Cities show as rings,
   add to the heatmap and mark their country as visited; the *Cities* tab lists
-  them all.
+  them all. Station words are dropped from stop names ("Lund Centralstation"
+  and "Zürich HB" count as Lund and Zürich). Click a city to rename it;
+  renaming it to a city you already have merges the two.
 - **Heatmap:** shows where you have been most. Every visit counts the same:
   one flight at an airport, one day in a city (up to 30) and one pass along a
   trip line glow equally bright, so going back and forth on a train line
@@ -88,7 +90,7 @@ When adding new files the site needs at runtime, add them to `FILES` in
 | `data/flights.csv` | Flights shown by default. Same format as the myFlightradar24 export (Settings → Export flights). Notes, seats and flight reason were stripped from the bundled copy. |
 | `data/visited.json` | Destinations visited without a recorded flight or trip, and how: `{ "andorra": "car", "iceland": "boat" }` (`plane`, `car`, `train`, `boat` or `other`). Seeded from your TCC tracking spreadsheet (as `other`). |
 | `data/trips.json` | Road / rail / boat trips (optional `times` for repeated trips). Use *Trips → Export trips.json* on the site to produce it. |
-| `data/cities.json` | Extra cities you visited, with optional date, travel mode and days spent (days scale the heatmap). Use *Add → Export cities.json* to produce it. |
+| `data/cities.json` | Extra cities you visited, with optional date, travel mode and days spent (days scale the heatmap). Once you rename a city, it becomes `{ "cities": [...], "renames": { "lund c": "Lund" } }`. Use *Add → Export cities.json* to produce it. |
 
 Anything you import, add or tick on the site is saved in that browser's local
 storage. To publish it, export the JSON files and replace the ones in `data/`.

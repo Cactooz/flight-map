@@ -325,12 +325,12 @@ export function createMap(container, { onHover, onClick, onMove }) {
   map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-left');
   map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-right');
 
-  // Don't zoom in further than where the 100 px scale bar shows 1 km: closer
+  // Don't zoom in further than where the 100 px scale bar shows 5 km: closer
   // adds nothing at the detail of this data. Metres per pixel depend on the
   // latitude, so the limit follows the map centre.
   const limitZoom = () => {
     const lat = map.getCenter().lat;
-    const z = Math.log2((78271.52 * Math.cos((lat * Math.PI) / 180)) / 10.1);
+    const z = Math.log2((78271.52 * Math.cos((lat * Math.PI) / 180)) / 50.5);
     map.setMaxZoom(Math.max(2, Math.min(12.9, z)));
   };
   map.on('moveend', limitZoom);
