@@ -249,6 +249,10 @@ const tccOut = entries.map((e) => {
     id: e.id,
     n: e.n,
     sov: e.sov,
+    // The destination's own ISO country code; when it equals `sov` the
+    // destination is an integral part of that country (Scotland, Crete, Hawaii)
+    // rather than a separate dependency (Greenland, Aruba, Puerto Rico).
+    cc: e.c?.[0] || e.r?.[0].split('-')[0] || e.bc?.[0] || null,
     // A territory / sub-national part of its country (e.g. Crete, England, Dubai).
     ...(TERRITORY_PARENT[e.n[0]] && e.n.length === 1 ? { part: true } : {}),
     name: e.name,

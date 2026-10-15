@@ -428,10 +428,24 @@ function heatGeoJson(trips, airports) {
   return { type: 'FeatureCollection', features };
 }
 
+/**
+ * Map fill status: the destination's own visit status, or 'country' for the
+ * other parts of a visited country (Scotland and Wales when you've been to
+ * England). Separate dependencies with their own country code (Greenland,
+ * Puerto Rico…) are not filled.
+ */
+function landStatus(idx, countries) {
+  const st = visitStatus(idx);
+  if (st) return st;
+  const t = state.tcc[idx];
+  return t.sov && t.cc === t.sov && countries.has(t.sov) ? 'country' : '';
+}
+
 function landGeoJson() {
+  const countries = visitedCountries();
   return {
     type: 'FeatureCollection',
-    features: state.features.map((f) => ({ ...f, properties: { idx: f.id, status: f.id >= 0 ? visitStatus(f.id) : '' } })),
+    features: state.features.map((f) => ({ ...f, properties: { idx: f.id, status: f.id >= 0 ? landStatus(f.id, countries) : '' } })),
   };
 }
 
@@ -519,7 +533,8 @@ function drawLegend(scales) {
       .map(([k, m]) => `<div><span class="ln ${k === 'boat' ? 'dashed' : ''}" style="--c:${m.color}"></span>${m.label}</div>`)
       .join('')}
     <div><span class="sw" style="background:var(--auto)"></span>Visited (flights / trips)</div>
-    <div><span class="sw" style="background:var(--manual)"></span>Visited (added manually)</div>`;
+    <div><span class="sw" style="background:var(--manual)"></span>Visited (added manually)</div>
+    <div><span class="sw" style="background:var(--auto);opacity:0.45"></span>Rest of a visited country</div>`;
 }
 
 // --------------------------------------------------------------- tooltip
@@ -584,7 +599,12 @@ function onHover(hit, ev) {
   } else if (hit.kind === 'dest') {
     const t = state.tcc[p.idx];
     const st = visitStatus(p.idx);
-    showTooltip(ev, `<div class="t-title">${esc(t.name)}</div><div class="t-sub">${esc(regionsOf(t).join(' · '))}</div><div>${st ? 'Visited' : 'Not visited'}</div>`);
+    const inCountry = !st && landStatus(p.idx, visitedCountries()) === 'country';
+    showTooltip(
+      ev,
+      `<div class="t-title">${esc(t.name)}</div><div class="t-sub">${esc(regionsOf(t).join(' · '))}</div>
+       <div>${st ? `Visited ${modeIcons(visitModes(p.idx))}` : inCountry ? `Not visited (but you've been to ${esc(state.countryIdx.get(t.sov).name)})` : 'Not visited'}</div>`,
+    );
   } else if (hit.kind === 'draft') {
     const w = state.draft?.waypoints[p.i];
     if (w) showTooltip(ev, `<div class="t-title">${p.i + 1}. ${esc(w.name)}</div>`);
@@ -709,6 +729,7 @@ function initPanel() {
     } else if (action === 'delete-trip') deleteTrip(value);
     else if (action === 'edit-trip') editTrip(value);
     else if (action === 'new-trip') startDraft();
+    else if (action === 'reroute') rerouteStraight();
     else if (action === 'cancel-draft') cancelDraft();
     else if (action === 'save-draft') saveDraft();
     else if (action === 'wp-remove') removeWaypoint(+value);
@@ -1296,6 +1317,26 @@ async function saveDraft() {
   M.fitCoords(trip.coords);
 }
 
+const needsRouting = (t) => t.routedBy === 'straight' && (t.mode === 'road' || t.mode === 'train') && t.waypoints.length > 1;
+
+/** Re-runs road/rail routing for trips saved as straight lines (e.g. added while offline). */
+async function rerouteStraight() {
+  const todo = state.trips.filter(needsRouting);
+  let ok = 0;
+  for (const [i, t] of todo.entries()) {
+    $('#trip-msg').innerHTML = `<p class="muted small">Routing ${i + 1} / ${todo.length}: ${esc(t.name)}…</p>`;
+    const res = await routeTrip(t.mode, t.waypoints);
+    if (res.routedBy !== 'straight') {
+      Object.assign(t, { coords: res.coords, routedBy: res.routedBy });
+      ok++;
+    }
+  }
+  saveTrips();
+  evidenceCache = null;
+  update();
+  $('#trip-msg').innerHTML = `<p class="${ok === todo.length ? 'ok' : 'warn'}">Routed ${ok} of ${todo.length} trips.${ok ? ' Export trips.json to publish them.' : ''}</p>`;
+}
+
 function deleteTrip(id) {
   const t = state.trips.find((x) => x.id === id);
   if (!t || !confirm(`Delete trip "${t.name || t.date || 'trip'}"?`)) return;
@@ -1359,7 +1400,11 @@ function renderTrips() {
   const trips = list.slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''));
   const byMode = d3.rollup(list, (v) => d3.sum(v, (t) => lineLengthKm(t.coords)), (t) => t.mode);
   el.innerHTML = `
-    <div class="row"><button type="button" class="primary" data-action="new-trip">+ New trip</button></div>
+    <div class="row"><button type="button" class="primary" data-action="new-trip">+ New trip</button>${
+      state.trips.some(needsRouting)
+        ? `<button type="button" data-action="reroute" title="Look up the actual road and rail routes for trips drawn as straight lines">Route ${state.trips.filter(needsRouting).length} straight-line trips</button>`
+        : ''
+    }</div>
     ${byMode.size ? `<div class="mode-sums">${[...byMode].map(([m, km]) => `<span class="pill">${MODES[m]?.icon || ''} ${fmt(Math.round(km))} km</span>`).join('')}</div>` : ''}
     <div class="list">
       ${

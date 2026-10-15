@@ -66,10 +66,10 @@ async function routeTrain(waypoints) {
 let searoutePromise = null;
 async function routeSea(waypoints) {
   searoutePromise ??= import('../vendor/searoute.mjs');
-  const { seaRoute } = await searoutePromise;
+  const { seaRoute, MARNET_20KM } = await searoutePromise;
   const coords = [];
   for (const [a, b] of pairs(waypoints)) {
-    const r = seaRoute(ll(a), ll(b), { antimeridian: 'unwrap', appendOriginDestination: true });
+    const r = seaRoute(ll(a), ll(b), { antimeridian: 'unwrap', appendOriginDestination: true, network: MARNET_20KM });
     const leg = r.geometry.coordinates;
     coords.push(...(coords.length ? leg.slice(1) : leg));
   }

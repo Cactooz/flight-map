@@ -127,8 +127,9 @@ export function createMap(container, { onHover, onClick, onMove }) {
           source: 'land',
           filter: ['!=', ['get', 'status'], ''],
           paint: {
-            'fill-color': ['match', ['get', 'status'], 'auto', COLORS.auto, COLORS.manual],
-            'fill-opacity': 0.32,
+            'fill-color': ['match', ['get', 'status'], 'manual', COLORS.manual, COLORS.auto],
+            // Other parts of a visited country get a lighter fill.
+            'fill-opacity': ['match', ['get', 'status'], 'country', 0.14, 0.32],
           },
         },
         {
@@ -136,7 +137,11 @@ export function createMap(container, { onHover, onClick, onMove }) {
           type: 'line',
           source: 'land',
           filter: ['!=', ['get', 'status'], ''],
-          paint: { 'line-color': ['match', ['get', 'status'], 'auto', COLORS.auto, COLORS.manual], 'line-width': 0.8, 'line-opacity': 0.8 },
+          paint: {
+            'line-color': ['match', ['get', 'status'], 'manual', COLORS.manual, COLORS.auto],
+            'line-width': 0.8,
+            'line-opacity': ['match', ['get', 'status'], 'country', 0.35, 0.8],
+          },
         },
         { id: 'land-hit', type: 'fill', source: 'land', filter: ['>=', ['get', 'idx'], 0], paint: { 'fill-color': '#000', 'fill-opacity': 0.001 } },
         { id: 'land-selected', type: 'line', source: 'land', filter: ['==', ['get', 'idx'], -2], paint: { 'line-color': '#fff', 'line-width': 2 } },
