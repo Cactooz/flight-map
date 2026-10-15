@@ -44,12 +44,19 @@
         <section class="tab" id="tab-overview" role="tabpanel"></section>
 
         <section class="tab" id="tab-countries" role="tabpanel" hidden>
+          <div class="seg" role="group" aria-label="List">
+            <button type="button" data-cview="countries" aria-pressed="true">Countries</button>
+            <button type="button" data-cview="tcc" aria-pressed="false">TCC destinations</button>
+          </div>
           <div id="country-progress"></div>
-          <input id="country-search" type="search" placeholder="Search countries &amp; territories" autocomplete="off" />
-          <div class="country-filter">
-            <label><input type="radio" name="cfilter" value="all" checked /> All</label>
-            <label><input type="radio" name="cfilter" value="visited" /> Visited</label>
-            <label><input type="radio" name="cfilter" value="missing" /> Not visited</label>
+          <div id="tcc-controls" hidden>
+            <input id="country-search" type="search" placeholder="Search countries &amp; territories" autocomplete="off" />
+            <div class="country-filter">
+              <label><input type="radio" name="cfilter" value="all" checked /> All</label>
+              <label><input type="radio" name="cfilter" value="visited" /> Visited</label>
+              <label><input type="radio" name="cfilter" value="missing" /> Not visited</label>
+            </div>
+            <p class="muted small">Pick how you visited a destination you didn't reach by a recorded flight or trip.</p>
           </div>
           <div id="country-list"></div>
         </section>
@@ -103,12 +110,13 @@
 
           <h2>Visited destinations</h2>
           <p class="muted small">
-            Destinations you tick by hand are stored in this browser. Export them to
-            <code>data/visited.json</code> to publish them with the site.
+            Destinations you mark by hand are saved in this browser on top of <code>data/visited.json</code>.
+            Export them to that file to publish them with the site.
           </p>
           <div class="row">
             <button type="button" id="export-visited">Export visited.json</button>
             <label class="btn">Import<input type="file" id="visited-input" accept=".json,application/json" hidden /></label>
+            <button type="button" id="reset-visited">Discard browser changes</button>
           </div>
         </section>
       </aside>

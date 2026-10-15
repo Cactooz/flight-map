@@ -2,12 +2,14 @@ import { parseFlightCsv, parseAirportField } from './csv.js';
 import { createMap, BASEMAPS } from './map.js';
 import { greatCircle, mercatorPx, distanceKm, lineLengthKm, sampleLine, createPolygonIndex } from './geo.js';
 import { MODES, routeTrip, searchPlaces, parseTrackFile } from './trips.js';
+import { COUNTRIES, CONTINENTS } from './countries.js';
 
 const d3 = window.d3;
 const topojson = window.topojson;
 
 const LS_FLIGHTS = 'flightmap.flights.v1';
-const LS_VISITED = 'flightmap.visited.v1';
+// v2 stores changes on top of data/visited.json instead of replacing it.
+const LS_VISITED = 'flightmap.visited.v2';
 const LS_TRIPS = 'flightmap.trips.v1';
 const LS_VIEW = 'flightmap.view.v1';
 
@@ -46,13 +48,14 @@ const state = {
   flightSource: 'bundled',
   trips: [],
   tripSource: 'bundled',
-  manualVisited: new Set(),
+  manual: new Map(), // destination id -> how it was visited ('plane' | 'car' | 'train' | 'boat' | 'other')
   year: 'all',
   sel: { airport: null, route: null, trip: null, dest: null, anyAirport: null },
   view: { flights: true, trips: true, heat: false, allAirports: false, rail: false, basemap: 'dark', globe: false },
   draft: null, // { id, mode, name, date, waypoints: [], clickToAdd }
   searchResults: [],
   countryFilter: 'all',
+  countryView: 'countries', // 'countries' | 'tcc'
   countrySearch: '',
 };
 
@@ -63,6 +66,39 @@ const $ = (sel) => document.querySelector(sel);
 const fmt = d3.format(',');
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const uid = () => Math.random().toString(36).slice(2, 10);
+const pct = (a, b) => (b ? Math.round((a / b) * 100) : 0);
+
+const VISIT_MODES = {
+  plane: { label: 'Airplane', icon: '✈️' },
+  car: { label: 'Car', icon: '🚗' },
+  train: { label: 'Train', icon: '🚆' },
+  boat: { label: 'Boat', icon: '🚢' },
+  other: { label: 'Other / unknown', icon: '📍' },
+};
+const TRIP_TO_VISIT = { road: 'car', train: 'train', boat: 'boat', other: 'other' };
+
+/** visited.json is either ["id", …] or { "id": "mode", … }. */
+function normalizeVisited(data, known) {
+  const m = new Map();
+  const entries = Array.isArray(data) ? data.map((id) => [id, 'other']) : Object.entries(data || {});
+  for (const [id, mode] of entries) if (known.has(id)) m.set(id, VISIT_MODES[mode] ? mode : 'other');
+  return m;
+}
+
+function applyVisitedChanges(base, changes, known) {
+  const m = new Map(base);
+  for (const [id, mode] of Object.entries(changes?.set || {})) if (known.has(id)) m.set(id, mode);
+  for (const id of changes?.removed || []) m.delete(id);
+  return m;
+}
+
+function saveVisited() {
+  const set = {};
+  const removed = [];
+  for (const [id, mode] of state.manual) if (state.bundledVisited.get(id) !== mode) set[id] = mode;
+  for (const id of state.bundledVisited.keys()) if (!state.manual.has(id)) removed.push(id);
+  store.set(LS_VISITED, Object.keys(set).length || removed.length ? { set, removed } : null);
+}
 
 // ------------------------------------------------------------- loading
 
@@ -142,7 +178,9 @@ async function init() {
   else setTrips(trips, 'bundled');
 
   const known = new Set(tcc.map((t) => t.id));
-  state.manualVisited = new Set((store.get(LS_VISITED, null) ?? visited).filter((id) => known.has(id)));
+  state.bundledVisited = normalizeVisited(visited, known);
+  state.manual = applyVisitedChanges(state.bundledVisited, store.get(LS_VISITED, null), known);
+  state.countryIdx = new Map(COUNTRIES.map((c) => [c.iso, c]));
   Object.assign(state.view, store.get(LS_VIEW, {}));
 
   M = createMap($('#map'), { onHover, onClick, onMove: hideTooltip });
@@ -180,7 +218,7 @@ function aggregate(flights) {
     if (f.from === r.a) r.ab++;
     else r.ba++;
     r.flights.push(f);
-    for (const code of [f.from, f.to]) {
+    for (const code of new Set([f.from, f.to])) {
       let ap = airports.get(code);
       if (!ap) airports.set(code, (ap = { code, count: 0, routes: new Set() }));
       ap.count++;
@@ -226,8 +264,38 @@ function evidence() {
 
 function visitStatus(idx) {
   if (evidence().has(idx)) return 'auto';
-  if (state.manualVisited.has(state.tcc[idx].id)) return 'manual';
+  if (state.manual.has(state.tcc[idx].id)) return 'manual';
   return '';
+}
+
+// How a destination was visited: plane for airports, the trip modes, plus any manual entry.
+function visitModes(idx) {
+  const modes = new Set();
+  const e = evidence().get(idx);
+  if (e?.airports.size) modes.add('plane');
+  for (const id of e?.trips || []) {
+    const t = state.trips.find((x) => x.id === id);
+    if (t) modes.add(TRIP_TO_VISIT[t.mode] || 'other');
+  }
+  const m = state.manual.get(state.tcc[idx].id);
+  // "Other / unknown" (e.g. imported from the TCC sheet) is only shown when nothing else is known.
+  if (m && (m !== 'other' || !modes.size)) modes.add(m);
+  return [...modes];
+}
+
+const modeIcons = (modes) => modes.map((m) => VISIT_MODES[m]?.icon || '').join(' ');
+
+/** Sovereign countries visited: a territory (Crete, Tasmania…) also counts its parent country. */
+function visitedCountries() {
+  const m = new Map();
+  state.tcc.forEach((t, idx) => {
+    if (!t.sov || !visitStatus(idx)) return;
+    if (!m.has(t.sov)) m.set(t.sov, { country: state.countryIdx.get(t.sov), dests: [], modes: new Set() });
+    const v = m.get(t.sov);
+    v.dests.push(idx);
+    for (const mode of visitModes(idx)) v.modes.add(mode);
+  });
+  return m;
 }
 
 const visitedCount = () => state.tcc.filter((_, i) => visitStatus(i)).length;
@@ -246,15 +314,25 @@ function routeScales(routes) {
     // Same hue throughout; saturation (and a little brightness) grows with use.
     color: (n) => d3.hsl(32, 0.12 + 0.88 * t(n), 0.62 - 0.08 * t(n)).formatHex(),
     // Arrow length (px) for the busier direction of a route.
-    arrowBase: (r) => 8 + 12 * Math.sqrt(Math.max(r.ab, r.ba) / maxDir),
+    arrowBase: (r) => 6 + 9 * Math.sqrt(Math.max(r.ab, r.ba) / maxDir),
   };
 }
 
 function flightGeoJson(routes, scales) {
   const lines = [];
   const arrows = [];
+  const loops = [];
   const ui = Math.max(0.6, Math.min(1, $('#map').clientWidth / 1100));
   for (const r of routes) {
+    if (r.a === r.b) {
+      // Same departure and arrival airport (e.g. a helicopter sightseeing tour).
+      loops.push({
+        type: 'Feature',
+        properties: { key: r.key, a: r.a, b: r.b, color: scales.color(r.total), s: (0.6 + 0.4 * Math.sqrt(r.total / scales.maxTotal)) * ui },
+        geometry: { type: 'Point', coordinates: coord(r.a) },
+      });
+      continue;
+    }
     const A = coord(r.a);
     const B = coord(r.b);
     const line = greatCircle(A, B);
@@ -287,7 +365,7 @@ function flightGeoJson(routes, scales) {
           key: r.key,
           a: r.a,
           b: r.b,
-          color,
+          color: d3.color(color).brighter(0.9).formatHex(),
           rot: (Math.atan2(qx - px, -(qy - py)) * 180) / Math.PI,
           s: ((base * count) / maxDir / 32) * ui,
           base,
@@ -297,7 +375,8 @@ function flightGeoJson(routes, scales) {
       });
     }
   }
-  return { lines: { type: 'FeatureCollection', features: lines }, arrows: { type: 'FeatureCollection', features: arrows } };
+  const fc = (features) => ({ type: 'FeatureCollection', features });
+  return { lines: fc(lines), arrows: fc(arrows), loops: fc(loops) };
 }
 
 function airportsGeoJson(airports) {
@@ -387,9 +466,10 @@ function drawMovements() {
   state.agg = agg;
   const scales = routeScales(agg.routes);
   agg.routes.sort((x, y) => x.total - y.total);
-  const { lines, arrows } = flightGeoJson(agg.routes, scales);
+  const { lines, arrows, loops } = flightGeoJson(agg.routes, scales);
   M.setData('routes', lines);
   M.setData('arrows', arrows);
+  M.setData('loops', loops);
   M.setData('airports', airportsGeoJson(agg.airports));
   M.setAirportLabels(agg.airports.map((a) => ({ code: a.code, count: a.count, lngLat: coord(a.code) })));
   M.setData('trips', tripsGeoJson(trips));
@@ -416,7 +496,7 @@ function applyHighlight() {
 
 function applyView() {
   const v = state.view;
-  M.setVisible(['routes', 'routes-hit', 'arrows', 'airports'], v.flights);
+  M.setVisible(['routes', 'routes-hit', 'arrows', 'loops', 'airports'], v.flights);
   document.body.classList.toggle('hide-labels', !v.flights);
   M.setVisible(['trips', 'trips-boat', 'trips-hit'], v.trips);
   M.setVisible('heat', v.heat);
@@ -465,6 +545,11 @@ function airportName(code) {
   return a ? `${a[1] || a[0]}` : code;
 }
 
+const isLoop = (r) => r.a === r.b;
+const routeTitle = (r) => (isLoop(r) ? `${r.a} ⟲ local flight` : `${r.a} ⇄ ${r.b}`);
+const routeSub = (r) =>
+  isLoop(r) ? `${esc(airportName(r.a))} · starts and ends here` : `${esc(airportName(r.a))} – ${esc(airportName(r.b))} · ${fmt(Math.round(airportKm(r.a, r.b)))} km`;
+
 function findRoute(key) {
   return state.agg.routes.find((r) => r.key === key);
 }
@@ -488,10 +573,9 @@ function onHover(hit, ev) {
     if (!r) return hideTooltip();
     showTooltip(
       ev,
-      `<div class="t-title">${r.a} ⇄ ${r.b}</div>
-       <div>${r.a} → ${r.b}: <b>${r.ab}</b></div>
-       <div>${r.b} → ${r.a}: <b>${r.ba}</b></div>
-       <div class="t-sub">${esc(airportName(r.a))} – ${esc(airportName(r.b))} · ${fmt(Math.round(airportKm(r.a, r.b)))} km</div>`,
+      `<div class="t-title">${routeTitle(r)}</div>
+       ${isLoop(r) ? `<div>Flights: <b>${r.total}</b></div>` : `<div>${r.a} → ${r.b}: <b>${r.ab}</b></div><div>${r.b} → ${r.a}: <b>${r.ba}</b></div>`}
+       <div class="t-sub">${routeSub(r)}</div>`,
     );
   } else if (hit.kind === 'trip') {
     const t = state.trips.find((x) => x.id === p.id);
@@ -591,8 +675,14 @@ function initPanel() {
   }
   $('#country-list').addEventListener('change', (ev) => {
     const id = ev.target.dataset.id;
-    if (id) toggleManual(id, ev.target.checked);
+    if (id) setManual(id, ev.target.value);
   });
+  for (const b of document.querySelectorAll('[data-cview]')) {
+    b.onclick = () => {
+      state.countryView = b.dataset.cview;
+      renderCountries();
+    };
+  }
   $('#country-list').addEventListener('click', (ev) => {
     const el = ev.target.closest('[data-focus]');
     if (el) focusDestination(+el.dataset.focus);
@@ -609,9 +699,9 @@ function initPanel() {
       M.flyTo(coord(value), 4);
     } else if (action === 'route') select({ route: value });
     else if (action === 'close') clearSelection();
-    else if (action === 'toggle-dest') {
-      const t = state.tcc[+value];
-      toggleManual(t.id, !state.manualVisited.has(t.id));
+    else if (action === 'set-visit') {
+      const [idx, mode] = value.split(':');
+      setManual(state.tcc[+idx].id, mode);
     } else if (action === 'trip') {
       select({ trip: value });
       const t = state.trips.find((x) => x.id === value);
@@ -668,15 +758,22 @@ function initDataTab() {
     buildYearFilter();
     update();
   };
-  $('#export-visited').onclick = () => download('visited.json', JSON.stringify([...state.manualVisited].sort(), null, 2) + '\n');
+  $('#export-visited').onclick = () => {
+    const obj = Object.fromEntries([...state.manual].sort(([a], [b]) => a.localeCompare(b)));
+    download('visited.json', JSON.stringify(obj, null, 2) + '\n');
+  };
+  $('#reset-visited').onclick = () => {
+    store.set(LS_VISITED, null);
+    state.manual = new Map(state.bundledVisited);
+    update();
+  };
   $('#visited-input').onchange = async (ev) => {
     const file = ev.target.files[0];
     if (!file) return;
     try {
-      const ids = JSON.parse(await file.text());
       const known = new Set(state.tcc.map((t) => t.id));
-      state.manualVisited = new Set(ids.filter((id) => known.has(id)));
-      store.set(LS_VISITED, [...state.manualVisited]);
+      state.manual = normalizeVisited(JSON.parse(await file.text()), known);
+      saveVisited();
       update();
     } catch (err) {
       alert(`Could not read visited list: ${err.message}`);
@@ -712,10 +809,10 @@ async function importCsvFile(file) {
   }
 }
 
-function toggleManual(id, on) {
-  if (on) state.manualVisited.add(id);
-  else state.manualVisited.delete(id);
-  store.set(LS_VISITED, [...state.manualVisited]);
+function setManual(id, mode) {
+  if (mode) state.manual.set(id, mode);
+  else state.manual.delete(id);
+  saveVisited();
   drawCountries();
   renderStats();
   renderCountries();
@@ -766,9 +863,9 @@ function renderStats() {
   const items = [
     [fmt(flights.length), 'Flights'],
     [fmt(Math.round(flightKm)), 'Flight km'],
-    [fmt(state.agg.airports.length), 'Airports'],
-    [fmt(trips.length), 'Trips'],
     [fmt(Math.round(tripKm)), 'Road/rail/sea km'],
+    [fmt(state.agg.airports.length), 'Airports'],
+    [`${visitedCountries().size}<small class="muted">/${COUNTRIES.length}</small>`, 'Countries'],
     [`${visitedCount()}<small class="muted">/${state.tcc.length}</small>`, 'TCC visited'],
   ];
   $('#stats').innerHTML = items.map(([v, l]) => `<div class="stat"><b>${v}</b><span>${l}</span></div>`).join('');
@@ -806,12 +903,14 @@ function renderOverview() {
     const r = findRoute(route);
     if (r) {
       el.innerHTML = card(
-        `${r.a} ⇄ ${r.b}`,
-        `${esc(airportName(r.a))} – ${esc(airportName(r.b))} · ${fmt(Math.round(airportKm(r.a, r.b)))} km`,
-        `<div class="list">
-          <div class="list-item" data-action="airport" data-value="${r.a}"><span>${r.a} → ${r.b}</span><span class="pill">${r.ab}</span></div>
-          <div class="list-item" data-action="airport" data-value="${r.b}"><span>${r.b} → ${r.a}</span><span class="pill">${r.ba}</span></div>
-        </div>
+        routeTitle(r),
+        routeSub(r),
+        `<div class="list">${
+          isLoop(r)
+            ? `<div class="list-item" data-action="airport" data-value="${r.a}"><span>${r.a} → ${r.a}</span><span class="pill">${r.total}</span></div>`
+            : `<div class="list-item" data-action="airport" data-value="${r.a}"><span>${r.a} → ${r.b}</span><span class="pill">${r.ab}</span></div>
+               <div class="list-item" data-action="airport" data-value="${r.b}"><span>${r.b} → ${r.a}</span><span class="pill">${r.ba}</span></div>`
+        }</div>
         <h2>Flights</h2>${flightRows(r.flights)}`,
       );
       return;
@@ -838,9 +937,13 @@ function renderOverview() {
         ${mine
           .map(
             (m) => `<div class="list-item" data-action="route" data-value="${m.r.key}">
-              <div><div>${m.other} <span class="muted small">${esc(airportName(m.other))}</span></div>
+              ${
+                isLoop(m.r)
+                  ? `<div><div>⟲ Local flights</div><div class="sub">Start and end at ${airport}</div></div><span class="pill">${m.r.total}</span>`
+                  : `<div><div>${m.other} <span class="muted small">${esc(airportName(m.other))}</span></div>
               <div class="sub">${fmt(Math.round(airportKm(airport, m.other)))} km</div></div>
-              <span class="dir"><span class="pill" title="${airport} → ${m.other}">→ ${m.out}</span><span class="pill" title="${m.other} → ${airport}">← ${m.inn}</span></span>
+              <span class="dir"><span class="pill" title="${airport} → ${m.other}">→ ${m.out}</span><span class="pill" title="${m.other} → ${airport}">← ${m.inn}</span></span>`
+              }
             </div>`,
           )
           .join('')}
@@ -882,11 +985,17 @@ function renderOverview() {
     el.innerHTML = card(
       esc(t.name),
       esc(regionsOf(t).join(' · ')),
-      st === 'auto'
-        ? `${via.length ? `<p>Flew to ${via.map((c) => `<a href="#" class="link-btn" data-action="airport" data-value="${c}">${c}</a>`).join(', ')}.</p>` : ''}
-           ${tripList.length ? `<p>Trips: ${tripList.map((x) => `<a href="#" class="link-btn" data-action="trip" data-value="${x.id}">${esc(x.name || x.date || 'trip')}</a>`).join(', ')}.</p>` : ''}`
-        : `<p>${st === 'manual' ? 'Marked as visited.' : 'Not visited yet.'}</p>
-           <button type="button" data-action="toggle-dest" data-value="${dest}">${st === 'manual' ? 'Unmark as visited' : 'Mark as visited'}</button>`,
+      `${t.part ? `<p class="muted small">Part of ${esc(state.countryIdx.get(t.sov).name)}.</p>` : ''}
+       ${via.length ? `<p>Flew to ${via.map((c) => `<a href="#" class="link-btn" data-action="airport" data-value="${c}">${c}</a>`).join(', ')}.</p>` : ''}
+       ${tripList.length ? `<p>Trips: ${tripList.map((x) => `<a href="#" class="link-btn" data-action="trip" data-value="${x.id}">${esc(x.name || x.date || 'trip')}</a>`).join(', ')}.</p>` : ''}
+       ${st === '' ? '<p>Not visited yet.</p>' : ''}
+       <p class="small muted">${st === 'auto' ? 'Also visited (added manually):' : 'Visited by:'}</p>
+       <div class="mode-btns">
+         ${Object.entries(VISIT_MODES)
+           .map(([k, m]) => `<button type="button" class="${state.manual.get(t.id) === k ? 'on' : ''}" data-action="set-visit" data-value="${dest}:${k}">${m.icon} ${m.label}</button>`)
+           .join('')}
+         ${state.manual.has(t.id) ? `<button type="button" data-action="set-visit" data-value="${dest}:">Clear</button>` : ''}
+       </div>`,
     );
     return;
   }
@@ -903,8 +1012,8 @@ function renderOverview() {
       ${top
         .map(
           (r) => `<div class="list-item" data-action="route" data-value="${r.key}">
-            <div><div>${r.a} ⇄ ${r.b}</div><div class="sub">${esc(airportName(r.a))} – ${esc(airportName(r.b))}</div></div>
-            <span class="dir"><span class="pill" title="${r.a} → ${r.b}">→ ${r.ab}</span><span class="pill" title="${r.b} → ${r.a}">← ${r.ba}</span></span>
+            <div><div>${routeTitle(r)}</div><div class="sub">${routeSub(r)}</div></div>
+            ${isLoop(r) ? `<span class="pill">${r.total}</span>` : `<span class="dir"><span class="pill" title="${r.a} → ${r.b}">→ ${r.ab}</span><span class="pill" title="${r.b} → ${r.a}">← ${r.ba}</span></span>`}
           </div>`,
         )
         .join('')}
@@ -925,8 +1034,53 @@ function renderOverview() {
     </div>`;
 }
 
+function flag(iso) {
+  if (!/^[A-Z]{2}$/.test(iso) || iso === 'XK' || iso === 'XN') return '🏳️';
+  return String.fromCodePoint(...[...iso].map((c) => 0x1f1a5 + c.charCodeAt(0)));
+}
+
+function bar(label, v, total) {
+  return `<div class="bar-row"><span>${esc(label)}</span><span class="muted">${v} / ${total}</span><b>${pct(v, total)}%</b>
+    <div class="progress"><div style="width:${pct(v, total)}%"></div></div></div>`;
+}
+
 function renderCountries() {
-  const ev = evidence();
+  for (const b of document.querySelectorAll('[data-cview]')) b.setAttribute('aria-pressed', String(b.dataset.cview === state.countryView));
+  $('#tcc-controls').hidden = state.countryView !== 'tcc';
+  if (state.countryView === 'tcc') renderTccList();
+  else renderCountryList();
+}
+
+/** Sovereign countries: per-continent percentages and the list of visited countries. */
+function renderCountryList() {
+  const visited = visitedCountries();
+  const conts = Object.entries(CONTINENTS).map(([code, name]) => {
+    const all = COUNTRIES.filter((c) => c.continents.includes(code));
+    return { name, total: all.length, v: all.filter((c) => visited.has(c.iso)).length };
+  });
+  const list = [...visited.values()].sort((a, b) => a.country.name.localeCompare(b.country.name));
+  $('#country-progress').innerHTML = `
+    <div class="progress-total"><span><b>${visited.size}</b> <span class="muted">of ${COUNTRIES.length} countries</span></span><span class="muted">${pct(visited.size, COUNTRIES.length)}%</span></div>
+    <div class="progress"><div style="width:${pct(visited.size, COUNTRIES.length)}%"></div></div>
+    <h2>Per continent</h2>
+    ${conts.map((c) => bar(c.name, c.v, c.total)).join('')}
+    <p class="muted small">Countries are the 193 UN members plus Vatican City, Palestine, Cook Islands, Niue, Kosovo, Northern Cyprus and Taiwan.
+    Visiting a territory (e.g. Crete, Tasmania) counts its country. Russia, Turkey and Egypt count for both their continents.</p>`;
+  $('#country-list').innerHTML = `
+    <h2>Visited countries</h2>
+    ${list
+      .map(({ country, dests, modes }) => {
+        const parts = dests.map((i) => state.tcc[i]).filter((t) => t.part);
+        return `<div class="country-row" data-focus="${dests[0]}">
+          <span class="flag">${flag(country.iso)}</span>
+          <span><span class="name">${esc(country.name)}</span>${parts.length ? `<div class="sub">${parts.map((t) => esc(t.name.replace(/\s*\(.*\)$/, ''))).join(', ')}</div>` : ''}</span>
+          <span class="modes" title="${[...modes].map((m) => VISIT_MODES[m]?.label).join(', ')}">${modeIcons([...modes])}</span>
+        </div>`;
+      })
+      .join('')}`;
+}
+
+function renderTccList() {
   const entries = state.tcc.map((t, idx) => ({ ...t, idx, status: visitStatus(idx) }));
   // Destinations spanning two continents appear in both region lists but are one destination.
   const regions = new Map();
@@ -940,9 +1094,11 @@ function renderCountries() {
   const total = state.tcc.length;
   const visited = visitedCount();
   $('#country-progress').innerHTML = `
-    <div class="progress-total"><span><b>${visited}</b> <span class="muted">of ${total} TCC destinations</span></span><span class="muted">${Math.round((visited / total) * 100)}%</span></div>
-    <div class="progress"><div style="width:${(visited / total) * 100}%"></div></div>
-    <p class="muted small">${officialCount()} of 330 by official TCC numbering (Russia, Turkey and Egypt are one destination here but two on the TCC list).</p>`;
+    <div class="progress-total"><span><b>${visited}</b> <span class="muted">of ${total} TCC destinations</span></span><span class="muted">${pct(visited, total)}%</span></div>
+    <div class="progress"><div style="width:${pct(visited, total)}%"></div></div>
+    <p class="muted small">${officialCount()} of 330 by official TCC numbering (Russia, Turkey and Egypt are one destination here but two on the TCC list).</p>
+    <h2>Per region</h2>
+    ${order.map((r) => bar(r, regions.get(r).filter((t) => t.status).length, regions.get(r).length)).join('')}`;
 
   const q = state.countrySearch;
   const html = [];
@@ -955,21 +1111,18 @@ function renderCountries() {
     );
     if (!shown.length) continue;
     const v = list.filter((t) => t.status).length;
-    html.push(`<div class="region"><div class="region-head">${esc(region)}<span>${v} / ${list.length}</span></div>`);
+    html.push(`<div class="region"><div class="region-head">${esc(region)}<span>${v} / ${list.length} · ${pct(v, list.length)}%</span></div>`);
     for (const t of shown) {
-      const e = ev.get(t.idx);
       const other = regionsOf(t).filter((r) => r !== region);
-      let badge = '<span></span>';
-      if (e) {
-        const parts = [];
-        if (e.airports.size) parts.push(`✈ ${[...e.airports].slice(0, 3).join(' ')}${e.airports.size > 3 ? '…' : ''}`);
-        if (e.trips.size) parts.push(`${e.trips.size} trip${e.trips.size > 1 ? 's' : ''}`);
-        badge = `<span class="badge">${parts.join(' · ')}</span>`;
-      }
+      const manual = state.manual.get(t.id) || '';
+      const autoModes = t.status === 'auto' ? visitModes(t.idx).filter((m) => m !== manual || !manual) : [];
       html.push(`<div class="country">
-        <input type="checkbox" data-id="${t.id}" ${t.status ? 'checked' : ''} ${t.status === 'auto' ? 'disabled title="Visited by flight or trip"' : ''} aria-label="${esc(t.name)}" />
         <span class="name" data-focus="${t.idx}">${esc(t.name)}${other.length ? ` <span class="also" title="Also listed under ${esc(other.join(', '))}">+ ${esc(other.join(', '))}</span>` : ''}</span>
-        ${badge}
+        <span class="auto-modes" title="Visited by flights / trips">${modeIcons(autoModes)}</span>
+        <select data-id="${t.id}" class="visit-select ${t.status ? 'on' : ''}" aria-label="How you visited ${esc(t.name)}">
+          <option value="">${t.status === 'auto' ? '✓' : '–'}</option>
+          ${Object.entries(VISIT_MODES).map(([k, m]) => `<option value="${k}" ${manual === k ? 'selected' : ''}>${m.icon} ${m.label}</option>`).join('')}
+        </select>
       </div>`);
     }
     html.push('</div>');

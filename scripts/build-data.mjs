@@ -17,6 +17,7 @@ import { presimplify, simplify, quantile } from 'topojson-simplify';
 import { feature, merge } from 'topojson-client';
 import { build } from 'esbuild';
 import { TCC, idOf } from '../src/tcc-list.js';
+import { COUNTRIES, TERRITORY_PARENT, DEBATED } from '../src/countries.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const pkgDir = (name) => join(root, 'node_modules', name);
@@ -36,6 +37,17 @@ const entries = TCC.map((e, i) => {
 
 const numbers = entries.flatMap((e) => e.n).sort((a, b) => a - b);
 if (numbers.length !== 330 || numbers.some((n, i) => n !== i + 1)) throw new Error('TCC numbers must cover 1..330 exactly once');
+
+// Sovereign country each destination belongs to (territories count their parent).
+const countryIsos = new Set(COUNTRIES.map((c) => c.iso));
+for (const e of entries) {
+  const num = e.n[0];
+  if (DEBATED.includes(num)) e.sov = null;
+  else e.sov = TERRITORY_PARENT[num] || e.c?.[0] || e.r?.[0].split('-')[0];
+  if (e.sov && !countryIsos.has(e.sov)) throw new Error(`${e.name}: unknown country ${e.sov}`);
+}
+const sovs = new Set(entries.map((e) => e.sov));
+for (const c of COUNTRIES) if (!sovs.has(c.iso)) throw new Error(`No destination for country ${c.name}`);
 
 const ids = new Set();
 for (const e of entries) {
@@ -236,6 +248,9 @@ const tccOut = entries.map((e) => {
   return {
     id: e.id,
     n: e.n,
+    sov: e.sov,
+    // A territory / sub-national part of its country (e.g. Crete, England, Dubai).
+    ...(TERRITORY_PARENT[e.n[0]] && e.n.length === 1 ? { part: true } : {}),
     name: e.name,
     region: e.region,
     ...(e.also ? { also: e.also } : {}),

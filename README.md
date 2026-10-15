@@ -31,6 +31,14 @@ have visited, on an OpenStreetMap basemap.
   - Russia, Turkey and Egypt are one destination each here, listed under both
     of their regions; TCC counts each of them twice. The panel shows both
     counts.
+- **Countries view:** the 200 countries from the TCC tracking sheet (UN
+  members plus Vatican City, Palestine, Cook Islands, Niue, Kosovo, Northern
+  Cyprus and Taiwan), with a percentage per continent and a list of the
+  countries you've visited, showing how you got there. Visiting a territory
+  (Crete, Tasmania, the Canary Islands…) counts its country; visiting the
+  country does not count its territories.
+- **Local flights:** a flight that starts and ends at the same airport (e.g. a
+  helicopter tour) is drawn as a loop at that airport.
 - **Map options:** a dark or standard OpenStreetMap basemap, a railway overlay
   (OpenRailwayMap), a globe view, and a year filter.
 
@@ -50,7 +58,7 @@ Then open http://localhost:8080. It can be hosted as-is on GitHub Pages
 | File | What |
 | --- | --- |
 | `data/flights.csv` | Flights shown by default. Same format as the myFlightradar24 export (Settings → Export flights). Notes, seats and flight reason were stripped from the bundled copy. |
-| `data/visited.json` | Destination ids visited without flying, e.g. `["iceland", "andorra"]`. Seeded from your TCC tracking spreadsheet. |
+| `data/visited.json` | Destinations visited without a recorded flight or trip, and how: `{ "andorra": "car", "iceland": "boat" }` (`plane`, `car`, `train`, `boat` or `other`). Seeded from your TCC tracking spreadsheet (as `other`). |
 | `data/trips.json` | Road / rail / boat trips. Use *Trips → Export trips.json* on the site to produce it. |
 
 Anything you import, add or tick on the site is saved in that browser's local

@@ -18,28 +18,53 @@ const COLORS = {
   manual: '#4f7cc4',
 };
 
-function arrowImage() {
-  // White chevron pointing up, used as an SDF so each arrow can be coloured.
-  const size = 64;
+function canvas(size) {
   const c = document.createElement('canvas');
   c.width = c.height = size;
   const g = c.getContext('2d');
-  g.fillStyle = '#fff';
-  g.beginPath();
-  g.moveTo(32, 4);
-  g.lineTo(56, 56);
-  g.lineTo(32, 42);
-  g.lineTo(8, 56);
-  g.closePath();
-  g.fill();
-  return g.getImageData(0, 0, size, size);
+  g.fillStyle = g.strokeStyle = '#fff';
+  return g;
 }
 
-/** Arrow size expression: shrinks both arrows of a short route equally until zoomed in. */
+function arrowImage() {
+  // White triangle pointing up, used as an SDF so each arrow can be coloured.
+  // Its centroid is the image centre, so the arrow sits centred on the line.
+  const g = canvas(64);
+  g.beginPath();
+  g.moveTo(32, 5);
+  g.lineTo(52, 45.5);
+  g.lineTo(12, 45.5);
+  g.closePath();
+  g.fill();
+  return g.getImageData(0, 0, 64, 64);
+}
+
+function loopImage() {
+  // Teardrop loop leaving the bottom-left corner (the airport) up and to the
+  // right, with an arrowhead: used for flights that start and end at the same
+  // airport (sightseeing tours). Leaning right keeps the airport label free.
+  const g = canvas(64);
+  g.lineWidth = 5;
+  g.lineCap = 'round';
+  g.beginPath();
+  g.moveTo(5, 59);
+  g.bezierCurveTo(10, 20, 28, 4, 46, 6);
+  g.bezierCurveTo(64, 10, 62, 34, 5, 59);
+  g.stroke();
+  g.beginPath();
+  g.moveTo(40, 0);
+  g.lineTo(50, 6);
+  g.lineTo(40, 12);
+  g.closePath();
+  g.fill();
+  return g.getImageData(0, 0, 64, 64);
+}
+
+/** Arrow size expression: shrinks both arrows of a short route equally (down to 60%) until zoomed in. */
 function arrowSizeExpr() {
   const stops = [];
   for (let z = 0; z <= 16; z++) {
-    stops.push(z, ['*', ['get', 's'], ['min', 1, ['/', ['*', ['get', 'len'], 0.18 * 2 ** z], ['get', 'base']]]]);
+    stops.push(z, ['*', ['get', 's'], ['max', 0.6, ['min', 1, ['/', ['*', ['get', 'len'], 0.35 * 2 ** z], ['get', 'base']]]]]);
   }
   return ['interpolate', ['linear'], ['zoom'], ...stops];
 }
@@ -85,6 +110,7 @@ export function createMap(container, { onHover, onClick, onMove }) {
         trips: { type: 'geojson', data: EMPTY },
         routes: { type: 'geojson', data: EMPTY },
         arrows: { type: 'geojson', data: EMPTY },
+        loops: { type: 'geojson', data: EMPTY },
         airports: { type: 'geojson', data: EMPTY },
         allAirports: { type: 'geojson', data: EMPTY },
         draft: { type: 'geojson', data: EMPTY },
@@ -179,7 +205,20 @@ export function createMap(container, { onHover, onClick, onMove }) {
             'icon-allow-overlap': true,
             'icon-ignore-placement': true,
           },
-          paint: { 'icon-color': ['get', 'color'], 'icon-halo-color': 'rgba(11,18,32,0.7)', 'icon-halo-width': 1 },
+          paint: { 'icon-color': ['get', 'color'], 'icon-halo-color': 'rgba(11,18,32,0.85)', 'icon-halo-width': 1.2 },
+        },
+        {
+          id: 'loops',
+          type: 'symbol',
+          source: 'loops',
+          layout: {
+            'icon-image': 'loop',
+            'icon-size': ['get', 's'],
+            'icon-anchor': 'bottom-left',
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true,
+          },
+          paint: { 'icon-color': ['get', 'color'], 'icon-halo-color': 'rgba(11,18,32,0.6)', 'icon-halo-width': 0.5 },
         },
         {
           id: 'all-airports',
@@ -229,10 +268,11 @@ export function createMap(container, { onHover, onClick, onMove }) {
 
   const ready = new Promise((resolve) => map.on('load', resolve)).then(() => {
     map.addImage('arrow', arrowImage(), { sdf: true, pixelRatio: 2 });
+    map.addImage('loop', loopImage(), { sdf: true, pixelRatio: 2 });
   });
 
-  const hitLayers = ['draft-points', 'airports', 'all-airports', 'arrows', 'routes-hit', 'trips-hit', 'dest-markers', 'land-hit'];
-  const kindOf = { airports: 'airport', 'all-airports': 'any-airport', 'routes-hit': 'route', arrows: 'route', 'trips-hit': 'trip', 'dest-markers': 'dest', 'land-hit': 'dest', 'draft-points': 'draft' };
+  const hitLayers = ['draft-points', 'airports', 'all-airports', 'loops', 'arrows', 'routes-hit', 'trips-hit', 'dest-markers', 'land-hit'];
+  const kindOf = { airports: 'airport', 'all-airports': 'any-airport', 'routes-hit': 'route', arrows: 'route', loops: 'route', 'trips-hit': 'trip', 'dest-markers': 'dest', 'land-hit': 'dest', 'draft-points': 'draft' };
 
   function pick(point) {
     const layers = hitLayers.filter((id) => map.getLayer(id) && map.getLayoutProperty(id, 'visibility') !== 'none');
@@ -307,6 +347,7 @@ export function createMap(container, { onHover, onClick, onMove }) {
             : true;
       map.setPaintProperty('routes', 'line-opacity', ['case', routeActive, 1, 0.07]);
       map.setPaintProperty('arrows', 'icon-opacity', ['case', routeActive, 1, 0.07]);
+      map.setPaintProperty('loops', 'icon-opacity', ['case', routeActive, 1, 0.07]);
       const tripActive = trip ? ['==', ['get', 'id'], trip] : any ? false : true;
       for (const id of ['trips', 'trips-boat']) map.setPaintProperty(id, 'line-opacity', ['case', tripActive, 0.9, 0.1]);
       map.setPaintProperty('airports', 'circle-color', ['case', ['==', ['get', 'code'], airport || ''], '#ffad33', '#ffffff']);
