@@ -1,0 +1,138 @@
+Date,Flight number,From,To,Dep time,Arr time,Duration,Airline,Aircraft,Registration
+2006-07-12,SK937,Copenhagen / Kastrup (CPH/EKCH),Seattle / Seattle-Tacoma (SEA/KSEA),00:00:00,00:00:00,10:48:00,Scandinavian Airlines (SK/SAS), (),
+2006-07-26,SK938,Seattle / Seattle-Tacoma (SEA/KSEA),Copenhagen / Kastrup (CPH/EKCH),00:00:00,00:00:00,10:48:00,Scandinavian Airlines (SK/SAS), (),
+2007-03-29,,Vaxjo / Kronoberg (VXO/ESMX),Gran Canaria / Las Palmas (LPA/GCLP),00:00:00,00:00:00,05:39:00, (/), (),
+2007-04-05,,Gran Canaria / Las Palmas (LPA/GCLP),Vaxjo / Kronoberg (VXO/ESMX),00:00:00,00:00:00,05:39:00, (/), (),
+2007-10-26,,Vaxjo / Kronoberg (VXO/ESMX),Lanzarote / Lanzarote (ACE/GCRR),00:00:00,00:00:00,05:24:00, (/), (),
+2007-11-02,,Lanzarote / Lanzarote (ACE/GCRR),Vaxjo / Kronoberg (VXO/ESMX),00:00:00,00:00:00,05:24:00, (/), (),
+2008-02-02,SK194,Kalmar / Kalmar (KLR/ESMQ),Stockholm / Arlanda (ARN/ESSA),09:15:00,10:10:00,00:55:00,Scandinavian Airlines (SK/SAS),ATR 72-200 (AT72),
+2008-02-02,SK1803,Stockholm / Arlanda (ARN/ESSA),Malaga / Costa Del Sol (AGP/LEMG),11:30:00,15:55:00,04:25:00,Scandinavian Airlines (SK/SAS),Airbus A320neo (A20N),
+2008-02-06,SK1804,Malaga / Costa Del Sol (AGP/LEMG),Stockholm / Arlanda (ARN/ESSA),11:25:00,15:40:00,04:15:00,Scandinavian Airlines (SK/SAS), (),
+2008-02-06,SK195,Stockholm / Arlanda (ARN/ESSA),Kalmar / Kalmar (KLR/ESMQ),17:45:00,18:40:00,00:55:00,Scandinavian Airlines (SK/SAS),ATR 72-600 (AT76),
+2008-10-02,DK377,Malmo / Sturup (MMX/ESMS),Iraklion / Nikos Kazantzakis (HER/LGIR),17:10:00,21:30:00,03:20:00,Sunclass Airlines (DK/VKG), (),
+2008-10-09,DK378,Iraklion / Nikos Kazantzakis (HER/LGIR),Malmo / Sturup (MMX/ESMS),13:00:00,15:25:00,03:25:00,Sunclass Airlines (DK/VKG), (),
+2010-01-16,DY3821,Stockholm / Arlanda (ARN/ESSA),Tenerife-South / Reina Sofia (TFS/GCTS),11:20:00,16:05:00,05:45:00,Norwegian Air Shuttle (DY/NAX),Boeing 737 (B73X),
+2010-01-23,DY3822,Tenerife-South / Reina Sofia (TFS/GCTS),Stockholm / Arlanda (ARN/ESSA),17:00:00,23:45:00,05:45:00,Norwegian Air Shuttle (DY/NAX),Boeing 737 (B73X),
+2011-09-04,,Ronneby / Ronneby (RNB/ESDF),Alanya / Gazipasa (GZP/LTFG),00:00:00,00:00:00,03:42:00, (/), (),
+2011-09-11,,Alanya / Gazipasa (GZP/LTFG),Ronneby / Ronneby (RNB/ESDF),00:00:00,00:00:00,03:42:00, (/), (),
+2012-05-12,SK945,Stockholm / Arlanda (ARN/ESSA),Chicago / O'Hare (ORD/KORD),10:20:00,12:20:00,09:00:00,Scandinavian Airlines (SK/SAS),Airbus A330-300 (A333),
+2012-05-26,SK944,Chicago / O'Hare (ORD/KORD),Copenhagen / Kastrup (CPH/EKCH),22:05:00,13:20:00,08:15:00,Scandinavian Airlines (SK/SAS),Airbus A330-300 (A333),
+2013-02-15,SK925,Copenhagen / Kastrup (CPH/EKCH),Washington / Dulles (IAD/KIAD),12:20:00,15:00:00,08:40:00,Scandinavian Airlines (SK/SAS),Airbus A330-300 (A333),
+2013-02-17,,New York / Downtown Manhattan Heliport (JRB/KJRB),New York / Downtown Manhattan Heliport (JRB/KJRB),12:30:00,13:15:00,00:45:00, (/),Bell 407 (B407),N409TD
+2013-02-22,SK926,Washington / Dulles (IAD/KIAD),Copenhagen / Kastrup (CPH/EKCH),17:15:00,07:15:00,08:00:00,Scandinavian Airlines (SK/SAS),Airbus A330-300 (A333),
+2013-12-19,SK935,Copenhagen / Kastrup (CPH/EKCH),San Francisco / San Francisco International (SFO/KSFO),12:15:00,14:20:00,11:05:00,Scandinavian Airlines (SK/SAS),Airbus A350-900 (A359),
+2013-12-19,UA1248,San Francisco / San Francisco International (SFO/KSFO),Seattle / Seattle-Tacoma (SEA/KSEA),19:40:00,21:50:00,02:10:00,United Airlines (UA/UAL), (),
+2013-12-27,AA1818,Seattle / Seattle-Tacoma (SEA/KSEA),Philadelphia / Philadelphia (PHL/KPHL),22:15:00,06:10:00,04:55:00,American Airlines (AA/AAL), (),
+2013-12-28,AA1761,Philadelphia / Philadelphia (PHL/KPHL),St Thomas I / Cyril E King (STT/TIST),07:30:00,12:20:00,04:50:00,American Airlines (AA/AAL), (),
+2014-01-05,AA1761,St Thomas I / Cyril E King (STT/TIST),Philadelphia / Philadelphia (PHL/KPHL),13:25:00,16:30:00,03:05:00,American Airlines (AA/AAL), (),
+2014-01-08,SK908,Newark / Liberty International (EWR/KEWR),Oslo / Gardermoen (OSL/ENGM),18:55:00,08:15:00,07:20:00,Scandinavian Airlines (SK/SAS),Airbus A330-300 (A333),
+2014-01-09,SK455,Oslo / Gardermoen (OSL/ENGM),Copenhagen / Kastrup (CPH/EKCH),09:15:00,10:25:00,01:10:00,Scandinavian Airlines (SK/SAS),Airbus A320neo (A20N),
+2014-08-18,,Copenhagen / Kastrup (CPH/EKCH),London / Gatwick (LGW/EGKK),00:00:00,00:00:00,01:34:00,Norwegian Air Shuttle (DY/NAX),Boeing 737-800 (B738),
+2014-08-24,,London / Gatwick (LGW/EGKK),Copenhagen / Kastrup (CPH/EKCH),00:00:00,00:00:00,01:34:00,Norwegian Air Shuttle (DY/NAX),Boeing 737-800 (B738),
+2014-12-18,SK935,Copenhagen / Kastrup (CPH/EKCH),San Francisco / San Francisco International (SFO/KSFO),12:15:00,14:20:00,11:05:00,Scandinavian Airlines (SK/SAS),Airbus A350-900 (A359),
+2014-12-18,DL5780,San Francisco / San Francisco International (SFO/KSFO),Seattle / Seattle-Tacoma (SEA/KSEA),17:30:00,19:40:00,02:10:00,Delta Air Lines (DL/DAL), (),
+2014-12-26,DL1398,Seattle / Seattle-Tacoma (SEA/KSEA),Los Angeles / Los Angeles International (LAX/KLAX),12:30:00,15:00:00,02:30:00,Delta Air Lines (DL/DAL), (),
+2015-01-02,SK936,San Francisco / San Francisco International (SFO/KSFO),Copenhagen / Kastrup (CPH/EKCH),16:25:00,11:55:00,10:30:00,Scandinavian Airlines (SK/SAS),Airbus A350-900 (A359),
+2015-03-29,SK194,Kalmar / Kalmar (KLR/ESMQ),Stockholm / Arlanda (ARN/ESSA),12:35:00,13:40:00,01:05:00,Scandinavian Airlines (SK/SAS),ATR 72-200 (AT72),
+2015-03-29,SK2064,Stockholm / Arlanda (ARN/ESSA),Ostersund / Are Ostersund (OSD/ESNZ),16:00:00,17:20:00,01:20:00,Scandinavian Airlines (SK/SAS),ATR 72-200 (AT72),
+2015-04-02,SK61,Ostersund / Are Ostersund (OSD/ESNZ),Stockholm / Arlanda (ARN/ESSA),13:50:00,15:10:00,01:20:00,Scandinavian Airlines (SK/SAS),ATR 72-200 (AT72),
+2015-04-02,SK195,Stockholm / Arlanda (ARN/ESSA),Kalmar / Kalmar (KLR/ESMQ),14:20:00,15:30:00,01:10:00,Scandinavian Airlines (SK/SAS),ATR 72-600 (AT76),
+2015-06-14,SK945,Stockholm / Arlanda (ARN/ESSA),Chicago / O'Hare (ORD/KORD),10:20:00,12:20:00,09:00:00,Scandinavian Airlines (SK/SAS),Airbus A330-300 (A333),
+2015-06-14,AS29,Chicago / O'Hare (ORD/KORD),Seattle / Seattle-Tacoma (SEA/KSEA),15:20:00,17:50:00,04:30:00,Alaska Airlines (AS/ASA), (),
+2015-06-27,AS34,Seattle / Seattle-Tacoma (SEA/KSEA),Chicago / O'Hare (ORD/KORD),12:20:00,18:15:00,03:55:00,Alaska Airlines (AS/ASA), (),
+2015-06-27,SK946,Chicago / O'Hare (ORD/KORD),Stockholm / Arlanda (ARN/ESSA),16:00:00,07:20:00,08:20:00,Scandinavian Airlines (SK/SAS),Airbus A330-300 (A333),
+2015-07-02,SK1042,Stockholm / Arlanda (ARN/ESSA),Kiruna / Kiruna (KRN/ESNQ),10:40:00,12:10:00,01:30:00,Scandinavian Airlines (SK/SAS), (),
+2015-07-02,SK194,Kalmar / Kalmar (KLR/ESMQ),Stockholm / Arlanda (ARN/ESSA),12:30:00,13:35:00,01:05:00,Scandinavian Airlines (SK/SAS),ATR 72-600 (AT76),
+2015-07-07,SK1045,Kiruna / Kiruna (KRN/ESNQ),Stockholm / Arlanda (ARN/ESSA),12:30:00,14:00:00,01:30:00,Scandinavian Airlines (SK/SAS), (),
+2015-07-07,SK197,Stockholm / Arlanda (ARN/ESSA),Kalmar / Kalmar (KLR/ESMQ),17:50:00,19:00:00,01:10:00,Scandinavian Airlines (SK/SAS),ATR 72-200 (AT72),
+2016-02-20,HG3849,Goteborg / Landvetter (GOT/ESGG),Salzburg / Salzburg (SZG/LOWS),00:00:00,00:00:00,01:44:00, (/), (),
+2016-02-27,HG3848,Salzburg / Salzburg (SZG/LOWS),Goteborg / Landvetter (GOT/ESGG),00:00:00,00:00:00,01:44:00, (/), (),
+2016-03-27,SK2198,Kalmar / Kalmar (KLR/ESMQ),Stockholm / Arlanda (ARN/ESSA),06:30:00,07:35:00,01:05:00,Scandinavian Airlines (SK/SAS),ATR 72-600 (AT76),
+2016-03-27,SK2064,Stockholm / Arlanda (ARN/ESSA),Ostersund / Are Ostersund (OSD/ESNZ),16:00:00,17:20:00,01:20:00,Scandinavian Airlines (SK/SAS),ATR 72-200 (AT72),
+2016-03-31,SK61,Ostersund / Are Ostersund (OSD/ESNZ),Stockholm / Arlanda (ARN/ESSA),13:50:00,15:10:00,01:20:00,Scandinavian Airlines (SK/SAS),ATR 72-200 (AT72),
+2016-03-31,SK195,Stockholm / Arlanda (ARN/ESSA),Kalmar / Kalmar (KLR/ESMQ),14:20:00,15:30:00,01:10:00,Scandinavian Airlines (SK/SAS),ATR 72-600 (AT76),
+2016-10-29,SK1585,Copenhagen / Kastrup (CPH/EKCH),Barcelona / El Prat (BCN/LEBL),15:30:00,18:20:00,02:50:00,Scandinavian Airlines (SK/SAS),Embraer ERJ-195 (E195),
+2016-11-03,SK4686,Barcelona / El Prat (BCN/LEBL),Oslo / Gardermoen (OSL/ENGM),12:50:00,16:15:00,03:25:00,Scandinavian Airlines (SK/SAS),Boeing 737-800 (B738),
+2016-11-03,SK1465,Oslo / Gardermoen (OSL/ENGM),Copenhagen / Kastrup (CPH/EKCH),17:15:00,18:25:00,01:10:00,Scandinavian Airlines (SK/SAS),Airbus A321-200 (A321),
+2016-12-29,SK194,Kalmar / Kalmar (KLR/ESMQ),Stockholm / Arlanda (ARN/ESSA),12:30:00,13:35:00,01:05:00,Scandinavian Airlines (SK/SAS),ATR 72-200 (AT72),
+2016-12-29,SK2679,Stockholm / Arlanda (ARN/ESSA),Berlin / Brandenburg (BER/EDDB),18:45:00,20:15:00,01:30:00,Scandinavian Airlines (SK/SAS),Bombardier CRJ-900 (CRJ9),
+2017-01-02,SK2678,Berlin / Brandenburg (BER/EDDB),Stockholm / Arlanda (ARN/ESSA),12:00:00,13:35:00,01:35:00,Scandinavian Airlines (SK/SAS),Bombardier CRJ-900 (CRJ9),
+2017-01-02,SK197,Stockholm / Arlanda (ARN/ESSA),Kalmar / Kalmar (KLR/ESMQ),19:25:00,20:35:00,01:10:00,Scandinavian Airlines (SK/SAS),ATR 72-200 (AT72),
+2017-02-03,HG3849,Goteborg / Landvetter (GOT/ESGG),Salzburg / Salzburg (SZG/LOWS),00:00:00,00:00:00,01:44:00, (/), (),
+2017-02-25,HG3848,Salzburg / Salzburg (SZG/LOWS),Goteborg / Landvetter (GOT/ESGG),00:00:00,00:00:00,01:44:00, (/), (),
+2017-04-09,SK196,Kalmar / Kalmar (KLR/ESMQ),Stockholm / Arlanda (ARN/ESSA),17:05:00,18:10:00,01:05:00,Scandinavian Airlines (SK/SAS),ATR 72-600 (AT76),
+2017-04-09,SK70,Stockholm / Arlanda (ARN/ESSA),Ostersund / Are Ostersund (OSD/ESNZ),18:05:00,19:00:00,00:55:00,Scandinavian Airlines (SK/SAS),Bombardier CRJ-900 (CRJ9),
+2017-04-13,SK195,Stockholm / Arlanda (ARN/ESSA),Kalmar / Kalmar (KLR/ESMQ),14:20:00,15:30:00,01:10:00,Scandinavian Airlines (SK/SAS),ATR 72-600 (AT76),
+2017-04-13,SK2073,Ostersund / Are Ostersund (OSD/ESNZ),Stockholm / Arlanda (ARN/ESSA),15:30:00,16:25:00,00:55:00,Scandinavian Airlines (SK/SAS),Bombardier CRJ-900 (CRJ9),
+2017-05-04,FR7272,Vaxjo / Kronoberg (VXO/ESMX),Gdansk / Lech Walesa (GDN/EPGD),17:45:00,18:40:00,00:55:00,Ryanair (FR/RYR),Boeing 737-800 (B738),
+2017-05-07,FR7271,Gdansk / Lech Walesa (GDN/EPGD),Vaxjo / Kronoberg (VXO/ESMX),16:25:00,17:25:00,01:00:00,Ryanair (FR/RYR),Boeing 737-800 (B738),
+2017-12-15,SK198,Kalmar / Kalmar (KLR/ESMQ),Stockholm / Arlanda (ARN/ESSA),19:30:00,20:35:00,01:05:00,Scandinavian Airlines (SK/SAS),ATR 72-600 (AT76),
+2017-12-16,SK843,Stockholm / Arlanda (ARN/ESSA),Oslo / Gardermoen (OSL/ENGM),06:30:00,07:30:00,01:00:00,Scandinavian Airlines (SK/SAS),Bombardier CRJ-900 (CRJ9),
+2017-12-16,SK955,Oslo / Gardermoen (OSL/ENGM),Miami / Miami International (MIA/KMIA),09:30:00,13:55:00,10:25:00,Scandinavian Airlines (SK/SAS),Airbus A330-300 (A333),LN-RKH
+2017-12-31,SK958,Miami / Miami International (MIA/KMIA),Stockholm / Arlanda (ARN/ESSA),16:05:00,07:35:00,14:35:00,Scandinavian Airlines (SK/SAS), (),
+2018-01-01,SK195,Stockholm / Arlanda (ARN/ESSA),Kalmar / Kalmar (KLR/ESMQ),14:20:00,15:30:00,01:10:00,Scandinavian Airlines (SK/SAS),ATR 72-600 (AT76),
+2018-02-18,6Y8573,Vaxjo / Kronoberg (VXO/ESMX),Lleida / Alguaire (ILD/LEDA),00:00:00,00:00:00,02:54:00, (/), (),
+2018-02-25,6Y8574,Lleida / Alguaire (ILD/LEDA),Vaxjo / Kronoberg (VXO/ESMX),00:00:00,00:00:00,02:54:00, (/), (),
+2019-02-17,ENT521,Vaxjo / Kronoberg (VXO/ESMX),Lleida / Alguaire (ILD/LEDA),00:00:00,00:00:00,02:54:00, (/), (),
+2019-02-24,ENT522,Lleida / Alguaire (ILD/LEDA),Vaxjo / Kronoberg (VXO/ESMX),00:00:00,00:00:00,02:54:00, (/), (),
+2020-02-16,ENT505,Vaxjo / Kronoberg (VXO/ESMX),Lleida / Alguaire (ILD/LEDA),00:00:00,00:00:00,02:54:00, (/), (),
+2020-02-23,ENT508,Lleida / Alguaire (ILD/LEDA),Vaxjo / Kronoberg (VXO/ESMX),00:00:00,00:00:00,02:54:00, (/), (),
+2022-02-20,SK1811,Stockholm / Arlanda (ARN/ESSA),Barcelona / El Prat (BCN/LEBL),17:50:00,21:25:00,03:35:00,Scandinavian Airlines (SK/SAS), (),
+2022-02-27,SK1812,Barcelona / El Prat (BCN/LEBL),Stockholm / Arlanda (ARN/ESSA),22:20:00,01:50:00,03:30:00,Scandinavian Airlines (SK/SAS), (),
+2022-06-20,TF758,Stockholm / Bromma (BMA/ESSB),Vaxjo / Kronoberg (VXO/ESMX),11:50:00,12:50:00,01:00:00,BRA (TF/SCW),ATR 72-600 (AT76),SE-MKA
+2023-02-19,VY1266,Stockholm / Arlanda (ARN/ESSA),Barcelona / El Prat (BCN/LEBL),15:25:00,19:00:00,03:35:00,Vueling Airlines (VY/VLG),Airbus A320neo (A20N),EC-NFJ
+2023-02-26,VY1265,Barcelona / El Prat (BCN/LEBL),Stockholm / Arlanda (ARN/ESSA),11:00:00,14:45:00,03:45:00,Vueling Airlines (VY/VLG),Airbus A320 (A320),EC-MAN
+2023-03-03,TF764,Stockholm / Bromma (BMA/ESSB),Vaxjo / Kronoberg (VXO/ESMX),18:05:00,19:05:00,01:00:00,BRA (TF/SCW),ATR 72-600 (AT76),SE-MKH
+2023-03-05,TF773,Vaxjo / Kronoberg (VXO/ESMX),Stockholm / Bromma (BMA/ESSB),13:30:00,14:30:00,01:00:00,BRA (TF/SCW),ATR 72-600 (AT76),SE-MKH
+2023-05-14,TF773,Vaxjo / Kronoberg (VXO/ESMX),Stockholm / Bromma (BMA/ESSB),16:55:00,17:55:00,01:00:00,BRA (TF/SCW),ATR 72-600 (AT76),SE-MKL
+2023-10-07,TF442,Stockholm / Bromma (BMA/ESSB),Visby / Visby (VBY/ESSV),09:00:00,09:40:00,00:40:00,BRA (TF/SCW),ATR 72-600 (AT76),SE-MKH
+2023-10-08,TF449,Visby / Visby (VBY/ESSV),Stockholm / Bromma (BMA/ESSB),20:30:00,21:10:00,00:40:00,BRA (TF/SCW),ATR 72-600 (AT76),SE-MKF
+2024-03-02,EW5064,Stockholm / Arlanda (ARN/ESSA),Innsbruck / Innsbruck (INN/LOWI),12:05:00,14:30:00,02:25:00,Eurowings (EW/EWG),Airbus A320 (A320),9H-EUV
+2024-03-09,EW5065,Innsbruck / Innsbruck (INN/LOWI),Stockholm / Arlanda (ARN/ESSA),15:40:00,18:10:00,02:30:00,Eurowings (EW/EWG),Airbus A320 (A320),9H-EUV
+2024-04-01,SK2064,Stockholm / Arlanda (ARN/ESSA),Ostersund / Are Ostersund (OSD/ESNZ),12:20:00,13:20:00,01:00:00,Scandinavian Airlines (SK/SAS),Airbus A320neo (A20N),EI-SIE
+2024-04-04,SK71,Ostersund / Are Ostersund (OSD/ESNZ),Stockholm / Arlanda (ARN/ESSA),19:40:00,20:40:00,01:00:00,Scandinavian Airlines (SK/SAS),Airbus A320neo (A20N),EI-SIP
+2024-07-26,TF652,Stockholm / Arlanda (ARN/ESSA),Kalmar / Kalmar (KLR/ESMQ),13:25:00,14:25:00,01:00:00,BRA (TF/SCW),ATR 72-600 (AT76),SE-MKK
+2024-07-30,TF653,Kalmar / Kalmar (KLR/ESMQ),Stockholm / Arlanda (ARN/ESSA),15:40:00,16:40:00,01:00:00,BRA (TF/SCW),ATR 72-600 (AT76),SE-MKK
+2025-01-02,SK1468,Copenhagen / Kastrup (CPH/EKCH),Oslo / Gardermoen (OSL/ENGM),17:05:00,18:20:00,02:15:00,Scandinavian Airlines (SK/SAS),Airbus A320neo (A20N),SE-ROE
+2025-01-03,SK4490,Oslo / Gardermoen (OSL/ENGM),Svalbard / Longyear (LYR/ENSB),08:20:00,11:25:00,03:05:00,Scandinavian Airlines (SK/SAS),Airbus A320neo (A20N),SE-RZE
+2025-01-05,SK4491,Svalbard / Longyear (LYR/ENSB),Oslo / Gardermoen (OSL/ENGM),14:45:00,17:45:00,03:00:00,Scandinavian Airlines (SK/SAS),Airbus A320neo (A20N),SE-RUR
+2025-01-05,SK1477,Oslo / Gardermoen (OSL/ENGM),Copenhagen / Kastrup (CPH/EKCH),19:00:00,20:10:00,01:10:00,Scandinavian Airlines (SK/SAS),Airbus A320neo (A20N),SE-RUE
+2025-01-20,SK403,Stockholm / Arlanda (ARN/ESSA),Copenhagen / Kastrup (CPH/EKCH),09:00:00,10:15:00,01:15:00,Scandinavian Airlines (SK/SAS),Airbus A320neo (A20N),EI-SIE
+2025-01-20,SQ351,Copenhagen / Kastrup (CPH/EKCH),Singapore / Changi (SIN/WSSS),12:00:00,07:30:00,13:30:00,Singapore Airlines (SQ/SIA),Airbus A350-900 (A359),9V-SMD
+2025-03-07,VJ916,Singapore / Changi (SIN/WSSS),Hanoi / Noibai (HAN/VVNB),14:55:00,17:25:00,03:30:00,VietJet Air (VJ/VJC),Airbus A321 (A321),VN-A684
+2025-03-11,VJ913,Hanoi / Noibai (HAN/VVNB),Siem Reap / Siem Reap Angkor International Airport (SAI/VDSA),16:20:00,18:05:00,01:27:00,VietJet Air (VJ/VJC),Airbus A321 (A321),VN-A677
+2025-03-13,FD615,Siem Reap / Siem Reap Angkor International Airport (SAI/VDSA),Bangkok / Don Mueang International (DMK/VTBD),16:35:00,17:50:00,01:15:00,Thai AirAsia (FD/AIQ),Airbus A320 (A320),HS-ABY
+2025-03-16,TR607,Bangkok / Suvarnabhumi (BKK/VTBS),Singapore / Changi (SIN/WSSS),16:45:00,20:20:00,02:35:00,Scoot (TR/TGW),Boeing 787-8 (B788),9V-OFH
+2025-03-27,TR380,Singapore / Changi (SIN/WSSS),Lapu-Lapu / Mactan-Cebu (CEB/RPVM),19:40:00,23:30:00,03:50:00,Scoot (TR/TGW),Airbus A321neo (A21N),9V-NCH
+2025-03-31,TR381,Lapu-Lapu / Mactan-Cebu (CEB/RPVM),Singapore / Changi (SIN/WSSS),01:45:00,05:25:00,03:40:00,Scoot (TR/TGW),Airbus A320 (A320),9V-TRT
+2025-04-11,3K243,Singapore / Changi (SIN/WSSS),Denpasar Bali / Ngurah Rai (DPS/WADD),07:15:00,10:00:00,02:45:00,Jetstar Asia Airways (3K/JSA),Airbus A320-200 (A320),9V-JSJ
+2025-04-13,SQ947,Denpasar Bali / Ngurah Rai (DPS/WADD),Singapore / Changi (SIN/WSSS),21:45:00,00:20:00,02:35:00,Singapore Airlines (SQ/SIA),Boeing 787-10 (B78X),9V-SCP
+2025-05-07,TR820,Singapore / Changi (SIN/WSSS),Osaka / Kansai (KIX/RJBB),06:55:00,14:35:00,06:40:00,Scoot (TR/TGW),Boeing 787-9 (B789),9V-OJF
+2025-05-13,NZ90,Tokyo / Narita (NRT/RJAA),Auckland / Mangere (AKL/NZAA),20:00:00,09:25:00,10:25:00,Air New Zealand (NZ/ANZ),Boeing 777-300ER (B77W),ZK-OKS
+2025-05-16,JQ233,Auckland / Mangere (AKL/NZAA),Christchurch / Christchurch (CHC/NZCH),13:15:00,14:35:00,01:20:00,Jetstar Airways (JQ/JST),Airbus A320 (A320),VH-VGR
+2025-05-20,QF178,Queenstown / Frankton (ZQN/NZQN),Melbourne / Tullamarine (MEL/YMML),15:20:00,16:45:00,03:25:00,Qantas Airways (QF/QFA),Boeing 737-800 (B738),VH-XZO
+2025-05-22,VA1330,Melbourne / Tullamarine (MEL/YMML),Hobart / Hobart (HBA/YMHB),19:30:00,20:50:00,01:20:00,Virgin Australia (VA/VOZ),Boeing 737-800 (B738),VH-YFW
+2025-05-24,JQ724,Hobart / Hobart (HBA/YMHB),Sydney / Kingsford Smith (SYD/YSSY),19:30:00,21:20:00,01:50:00,Jetstar Airways (JQ/JST),Airbus A320 (A320),VH-VGY
+2025-05-26,JQ660,Sydney / Kingsford Smith (SYD/YSSY),Ayers Rock / Connellan (AYQ/YAYE),10:35:00,13:40:00,04:05:00,Jetstar Airways (JQ/JST),Airbus A320 (A320),VH-VFH
+2025-05-28,VA1694,Ayers Rock / Connellan (AYQ/YAYE),Brisbane / Brisbane (BNE/YBBN),16:25:00,20:05:00,02:40:00,Virgin Australia (VA/VOZ),Boeing 737-800 (B738),VH-YVD
+2025-06-01,VA781,Brisbane / Brisbane (BNE/YBBN),Cairns / Cairns (CNS/YBCS),10:40:00,13:10:00,02:30:00,Virgin Australia (VA/VOZ),Boeing 737-800 (B738),VH-IXK
+2025-06-07,VA1424,Cairns / Cairns (CNS/YBCS),Sydney / Kingsford Smith (SYD/YSSY),16:35:00,19:30:00,02:55:00,Virgin Australia (VA/VOZ),Boeing 737-800 (B738),VH-IJU
+2025-06-09,TR3,Sydney / Kingsford Smith (SYD/YSSY),Singapore / Changi (SIN/WSSS),12:50:00,19:15:00,08:25:00,Scoot (TR/TGW),Boeing 787-9 (B789),9V-OJA
+2025-06-10,SQ318,Singapore / Changi (SIN/WSSS),London / Heathrow (LHR/EGLL),12:35:00,19:30:00,13:55:00,Singapore Airlines (SQ/SIA),Boeing 777-300ER (B77W),9V-SNA
+2025-06-10,SK534,London / Heathrow (LHR/EGLL),Stockholm / Arlanda (ARN/ESSA),21:05:00,00:30:00,02:25:00,Scandinavian Airlines (SK/SAS),Airbus A320neo (A20N),EI-SIH
+2025-08-12,SK192,Kalmar / Kalmar (KLR/ESMQ),Stockholm / Arlanda (ARN/ESSA),10:15:00,11:20:00,01:05:00,Scandinavian Airlines (SK/SAS),ATR 72-600 (AT76),SE-MKF
+2025-12-04,SK1429,Stockholm / Arlanda (ARN/ESSA),Copenhagen / Kastrup (CPH/EKCH),17:00:00,18:15:00,01:15:00,Scandinavian Airlines (SK/SAS),Airbus A320neo (A20N),EI-SIP
+2025-12-07,SK1422,Copenhagen / Kastrup (CPH/EKCH),Stockholm / Arlanda (ARN/ESSA),12:50:00,14:05:00,01:15:00,Scandinavian Airlines (SK/SAS),Airbus A320neo (A20N),EI-SIV
+2026-01-23,SK1040,Stockholm / Arlanda (ARN/ESSA),Kiruna / Kiruna (KRN/ESNQ),08:15:00,09:55:00,01:40:00,Scandinavian Airlines (SK/SAS),Airbus A320 (A320),OY-KAP
+2026-01-26,SK1045,Kiruna / Kiruna (KRN/ESNQ),Stockholm / Arlanda (ARN/ESSA),14:15:00,16:00:00,01:45:00,Scandinavian Airlines (SK/SAS),Airbus A320neo (A20N),SE-ROX
+2026-02-14,D89620,Stockholm / Arlanda (ARN/ESSA),Lyon / Lyon Saint-Exupery (LYS/LFLL),07:30:00,10:14:00,03:08:00,Norwegian Air International (D8/IBK),Boeing 737 MAX 8 (B38M),SE-RTE
+2026-02-21,D89621,Lyon / Lyon Saint-Exupery (LYS/LFLL),Stockholm / Arlanda (ARN/ESSA),11:15:00,13:56:00,02:31:00,Norwegian Air International (D8/IBK),Boeing 737-800 (B738),SE-RXB
+2026-03-26,SK66,Stockholm / Arlanda (ARN/ESSA),Ostersund / Are Ostersund (OSD/ESNZ),08:10:00,09:15:00,01:05:00,Scandinavian Airlines (SK/SAS),Airbus A320neo (A20N),EI-SCB
+2026-03-29,SK71,Ostersund / Are Ostersund (OSD/ESNZ),Stockholm / Arlanda (ARN/ESSA),19:05:00,20:00:00,01:00:00,Scandinavian Airlines (SK/SAS),Airbus A320neo (A20N),EI-SCB
+2026-07-24,SK196,Kalmar / Kalmar (KLR/ESMQ),Stockholm / Arlanda (ARN/ESSA),13:50:00,14:55:00,01:05:00,Scandinavian Airlines (SK/SAS),ATR 72-600 (AT76),SE-MNP
+2026-10-07,SK1553,Stockholm / Arlanda (ARN/ESSA),Amsterdam / Schiphol (AMS/EHAM),08:10:00,10:20:00,02:10:00,Scandinavian Airlines (SK/SAS),Airbus A320neo (A20N),SE-ROP
+2026-10-09,KL1359,Amsterdam / Schiphol (AMS/EHAM),Prague / Praha-Ruzyne (PRG/LKPR),18:15:00,19:45:00,01:30:00,KLM Royal Dutch Airlines (KL/KLM),Embraer 175 (E75L),PH-EXW
+2026-10-12,LH1393,Prague / Praha-Ruzyne (PRG/LKPR),Frankfurt am Main / Frankfurt (FRA/EDDF),09:05:00,10:15:00,01:10:00,Lufthansa (LH/DLH),Airbus A320 (A320),D-AIZD
+2026-10-12,LH1204,Frankfurt am Main / Frankfurt (FRA/EDDF),Mulhouse / Basel (BSL/LFSB),12:40:00,13:40:00,01:00:00,Lufthansa (LH/DLH),Embraer ERJ-190 (E190),I-JENJ
+2026-10-15,SK842,Zurich / Kloten (ZRH/LSZH),Oslo / Gardermoen (OSL/ENGM),13:40:00,16:00:00,02:20:00,Scandinavian Airlines (SK/SAS),Airbus A320neo (A20N),SE-ROK
+2026-10-15,SK884,Oslo / Gardermoen (OSL/ENGM),Stockholm / Arlanda (ARN/ESSA),16:55:00,17:55:00,01:00:00,Scandinavian Airlines (SK/SAS),Airbus A320neo (A20N),SE-RZX

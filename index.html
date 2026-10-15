@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Flight Map</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ctext y=%22.9em%22 font-size=%2290%22%3E✈️%3C/text%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="src/style.css" />
+    <script src="vendor/d3.min.js"></script>
+    <script src="vendor/topojson-client.min.js"></script>
+  </head>
+  <body>
+    <div id="app">
+      <main id="map-wrap">
+        <svg id="map" role="img" aria-label="World map of flights and visited destinations"></svg>
+        <div id="tooltip" hidden></div>
+        <div id="map-controls">
+          <button type="button" id="zoom-in" title="Zoom in" aria-label="Zoom in">+</button>
+          <button type="button" id="zoom-out" title="Zoom out" aria-label="Zoom out">&minus;</button>
+          <button type="button" id="zoom-reset" title="Reset view" aria-label="Reset view">&#8634;</button>
+        </div>
+        <div id="legend"></div>
+        <div id="loading">Loading map&hellip;</div>
+      </main>
+
+      <aside id="panel">
+        <header class="panel-head">
+          <h1>Flight Map</h1>
+          <label class="year-filter">
+            <span>Period</span>
+            <select id="year-filter"><option value="all">All years</option></select>
+          </label>
+        </header>
+        <section id="stats" class="stats"></section>
+
+        <nav class="tabs" role="tablist">
+          <button type="button" role="tab" data-tab="overview" aria-selected="true">Overview</button>
+          <button type="button" role="tab" data-tab="countries" aria-selected="false">Countries</button>
+          <button type="button" role="tab" data-tab="data" aria-selected="false">Data</button>
+        </nav>
+
+        <section class="tab" id="tab-overview" role="tabpanel"></section>
+
+        <section class="tab" id="tab-countries" role="tabpanel" hidden>
+          <div id="country-progress"></div>
+          <input id="country-search" type="search" placeholder="Search countries &amp; territories" autocomplete="off" />
+          <div class="country-filter">
+            <label><input type="radio" name="cfilter" value="all" checked /> All</label>
+            <label><input type="radio" name="cfilter" value="visited" /> Visited</label>
+            <label><input type="radio" name="cfilter" value="missing" /> Not visited</label>
+          </div>
+          <div id="country-list"></div>
+        </section>
+
+        <section class="tab" id="tab-data" role="tabpanel" hidden>
+          <h2>Flights</h2>
+          <p class="muted" id="flight-source"></p>
+          <div id="drop-zone">
+            <p>
+              Drop your <strong>myFlightradar24 CSV export</strong> here or
+              <label class="link-btn">choose a file<input type="file" id="csv-input" accept=".csv,text/csv" hidden /></label>
+            </p>
+            <p class="muted small">Export it from my.flightradar24.com &rarr; Settings &rarr; Export flights.</p>
+          </div>
+          <div class="row">
+            <button type="button" id="reset-flights">Use bundled flights</button>
+          </div>
+          <div id="import-warnings"></div>
+
+          <h2>Add a flight</h2>
+          <form id="add-flight" class="add-flight">
+            <input name="from" placeholder="From (IATA)" maxlength="4" required />
+            <input name="to" placeholder="To (IATA)" maxlength="4" required />
+            <input name="date" type="date" />
+            <button type="submit">Add</button>
+          </form>
+          <p class="muted small">Manually added flights are stored in this browser together with the imported ones.</p>
+
+          <h2>Visited destinations</h2>
+          <p class="muted small">
+            Destinations you tick by hand are stored in this browser. Export them to
+            <code>data/visited.json</code> to publish them with the site.
+          </p>
+          <div class="row">
+            <button type="button" id="export-visited">Export visited.json</button>
+            <label class="btn">Import<input type="file" id="visited-input" accept=".json,application/json" hidden /></label>
+          </div>
+        </section>
+      </aside>
+    </div>
+    <script type="module" src="src/app.js"></script>
+  </body>
+</html>
