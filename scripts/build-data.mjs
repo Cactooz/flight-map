@@ -1,5 +1,6 @@
 // Builds the static data files the site loads:
-//   data/airports.json    IATA -> [name, city, country, lat, lon, icao, tccIndex]
+//   data/airports.json    IATA -> [name, municipality, country, lat, lon, icao, tccIndex,
+//                         servedCity, cityLon, cityLat]
 //   data/tcc.json         TCC destinations with marker position
 //   data/tcc-shapes.json  TopoJSON, one geometry per TCC destination
 //   vendor/*.js           d3 + topojson-client browser builds
@@ -16,6 +17,8 @@ import { topology } from 'topojson-server';
 import { presimplify, simplify, quantile } from 'topojson-simplify';
 import { feature, merge } from 'topojson-client';
 import { build } from 'esbuild';
+import { createRequire } from 'node:module';
+import { AIRPORT_CITY, CITY_POSITION } from '../src/airport-cities.js';
 import { TCC, idOf } from '../src/tcc-list.js';
 import { COUNTRIES, TERRITORY_PARENT, DEBATED, CONTINENT_BY_REGION, CONTINENT_OVERRIDES } from '../src/countries.js';
 
@@ -92,6 +95,33 @@ const codes = new Map(readJson(join(oaDir, 'codes.json')).map((x) => [x.id, x]))
 const coords = new Map(readJson(join(oaDir, 'coordinates.json')).map((x) => [x.id, x]));
 const regions = new Map(readJson(join(oaDir, 'region.json')).map((x) => [x.id, x]));
 
+// ------------------------------------------------------- airport cities
+
+// World cities (GeoNames, population >= 1000) to place the city each airport
+// serves at the city itself rather than at the airport.
+const worldCities = createRequire(import.meta.url)('all-the-cities');
+const norm = (s) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+const citiesByName = new Map();
+for (const c of worldCities) {
+  for (const n of new Set([c.name, ...(c.altName ? c.altName.split(',') : [])].map(norm))) {
+    if (!n) continue;
+    if (!citiesByName.has(n)) citiesByName.set(n, []);
+    citiesByName.get(n).push(c);
+  }
+}
+const kmBetween = ([x1, y1], [x2, y2]) => {
+  const la = ((y1 + y2) / 2) * (Math.PI / 180);
+  return Math.hypot((x1 - x2) * 111.32 * Math.cos(la), (y1 - y2) * 110.57);
+};
+/** [name, lon, lat] of the city an airport serves (falls back to the airport's position). */
+function airportCity(iata, municipality, name, lon, lat) {
+  const label = AIRPORT_CITY[iata] || (municipality || name).split(',')[0].split('/')[0].replace(/\s*\(.*\)\s*$/, '').trim();
+  if (CITY_POSITION[label]) return [label, ...CITY_POSITION[label]];
+  const near = (citiesByName.get(norm(label)) || []).filter((c) => kmBetween(c.loc.coordinates, [lon, lat]) < 100);
+  const best = near.sort((a, b) => b.population - a.population)[0];
+  return best ? [label, +best.loc.coordinates[0].toFixed(4), +best.loc.coordinates[1].toFixed(4)] : [label, lon, lat];
+}
+
 const typeRank = { large_airport: 0, medium_airport: 1, small_airport: 2, seaplane_base: 3, heliport: 4, balloonport: 5, closed: 9 };
 const airports = {};
 const airportRank = {};
@@ -118,6 +148,7 @@ for (const b of basic) {
     Math.round(lon * 1e4) / 1e4,
     (k && (k.gps_code || k.ident)) || '',
     e ? e.index : -1,
+    ...airportCity(iata, r.municipality, b.name, Math.round(lon * 1e4) / 1e4, Math.round(lat * 1e4) / 1e4),
   ];
 }
 

@@ -710,8 +710,7 @@ function onClick(hit, ev) {
   if (hit.kind === 'city') {
     const c = state.cityPoints.find((x) => x.id === hit.props.id);
     if (c?.cityId) select({ city: c.cityId });
-    else if (c?.trips.length) select({ trip: c.trips[0].id });
-    else if (c?.airports.length) selectAirport(c.airports[0]);
+    else if (c) select({ cityKey: c.key });
     return;
   }
   if (hit.kind === 'airport') selectAirport(hit.props.code);
@@ -724,7 +723,7 @@ function onClick(hit, ev) {
 // ------------------------------------------------------------- selection
 
 function select(sel) {
-  state.sel = { airport: null, route: null, trip: null, dest: null, anyAirport: null, city: null, ...sel };
+  state.sel = { airport: null, route: null, trip: null, dest: null, anyAirport: null, city: null, cityKey: null, ...sel };
   applyHighlight();
   renderOverview();
 }
@@ -1066,8 +1065,22 @@ function renderOverview() {
   el.hidden = false;
   const { routes } = state.agg;
   const { airport, route, trip, dest, anyAirport } = state.sel;
-  const { city } = state.sel;
-  if (airport || route || trip || dest != null || anyAirport || city) $('#panel').scrollTop = 0;
+  const { city, cityKey: ck } = state.sel;
+  if (airport || route || trip || dest != null || anyAirport || city || ck) $('#panel').scrollTop = 0;
+
+  if (ck) {
+    const c = allCities(true).find((x) => x.key === ck);
+    if (c) {
+      const idx = state.tccAt.near([c.lon, c.lat]);
+      el.innerHTML = card(
+        `🏙️ ${esc(c.name)}`,
+        `${idx >= 0 ? esc(state.tcc[idx].name) : ''}${c.modes.size ? ` · ${modeIcons([...c.modes])}` : ''}`,
+        `${c.airports.length ? `<p>✈️ Airports: ${c.airports.map((a) => `<a href="#" class="link-btn" data-action="airport" data-value="${a}">${a}</a> <span class="muted small">${esc(state.airports[a][0])}</span>`).join(', ')}</p>` : ''}
+         ${c.trips.length ? `<p>Trips: ${c.trips.map((t) => `<a href="#" class="link-btn" data-action="trip" data-value="${t.id}">${MODES[t.mode]?.icon || ''} ${esc(t.name || t.date)}</a>`).join(', ')}</p>` : ''}`,
+      );
+      return;
+    }
+  }
 
   if (city) {
     const c = state.cities.find((x) => x.id === city);
@@ -1652,22 +1665,11 @@ const cleanCity = (name) =>
     .replace(/\s+(HB|SBB|Centraal|Central|C|station|Station|Hbf|Bahnhof|Gare)$/, '')
     .trim();
 
-// Airports whose OurAirports municipality is a suburb or region rather than
-// the city they serve.
-const AIRPORT_CITY = {
-  ACE: 'Lanzarote', AYT: 'Antalya', BGY: 'Milan', BSL: 'Basel', BVA: 'Paris', CDG: 'Paris', CEB: 'Cebu', CGK: 'Jakarta',
-  CIA: 'Rome', DCA: 'Washington', DME: 'Moscow', FCO: 'Rome', GZP: 'Alanya', HND: 'Tokyo', IAD: 'Washington', ICN: 'Seoul',
-  IST: 'Istanbul', KUL: 'Kuala Lumpur', LCY: 'London', LGW: 'London', LPA: 'Gran Canaria', LTN: 'London', LYS: 'Lyon',
-  MXP: 'Milan', NRT: 'Tokyo', ORY: 'Paris', PMI: 'Palma', SAW: 'Istanbul', STN: 'London', SVO: 'Moscow', TPE: 'Taipei',
-  VKO: 'Moscow', YUL: 'Montreal', YYZ: 'Toronto',
-};
-
-/** The city an airport serves: "London/Gatwick, West Sussex" -> "London". */
-function airportCity(code) {
-  if (AIRPORT_CITY[code]) return AIRPORT_CITY[code];
+/** The city an airport serves (resolved at build time, see src/airport-cities.js). */
+const airportCity = (code) => {
   const a = state.airports[code];
-  return (a[1] || a[0]).split(',')[0].split('/')[0];
-}
+  return a[7] || (a[1] || a[0]).split(',')[0].split('/')[0];
+};
 
 const cityKey = (name) => name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 
@@ -1695,10 +1697,10 @@ function allCities(allYears = false) {
   };
   for (const c of state.cities) if (allYears || inYear(c.date)) add(c.name, c.lon, c.lat, 'city', c.mode, { cityId: c.id, date: c.date });
   for (const t of allYears ? state.trips : filteredTrips()) for (const w of t.waypoints) add(w.name, w.lon, w.lat, 'trip', TRIP_TO_VISIT[t.mode], { trip: t });
-  // Airport cities are placed at the airport (their ring surrounds its dot).
+  // Cities served by the airports you flew to, placed at the city itself.
   for (const a of allYears ? aggregate(state.flights).airports : state.agg.airports) {
     const ap = state.airports[a.code];
-    add(airportCity(a.code), ap[4], ap[3], 'airport', 'plane', { airport: a.code });
+    add(airportCity(a.code), ap[8] ?? ap[4], ap[9] ?? ap[3], 'airport', 'plane', { airport: a.code });
   }
   return out.sort((a, b) => a.name.localeCompare(b.name));
 }
@@ -1904,7 +1906,7 @@ function deleteTrip(id) {
   state.trips = state.trips.filter((x) => x.id !== id);
   saveTrips();
   evidenceCache = null;
-  state.sel = { airport: null, route: null, trip: null, dest: null, anyAirport: null, city: null };
+  state.sel = { airport: null, route: null, trip: null, dest: null, anyAirport: null, city: null, cityKey: null };
   update();
 }
 
