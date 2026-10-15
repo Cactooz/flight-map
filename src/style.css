@@ -375,3 +375,5 @@ button.primary:hover { background: #ffbe5c; }
 .show-all { width: 100%; margin-top: 4px; font-size: 12px; }
 .sub-head { font-size: 13px; margin: 14px 0 4px; }
 #tab-flights .stats { margin-bottom: 10px; }
+.city-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.city-chips .pill { font-size: 12px; }

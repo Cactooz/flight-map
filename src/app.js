@@ -1011,12 +1011,15 @@ function renderStats() {
   const flights = filteredFlights();
   const trips = filteredTrips();
   const flightKm = d3.sum(flights, (f) => airportKm(f.from, f.to));
-  const tripKm = d3.sum(trips, (t) => lineLengthKm(t.coords));
+  const kmBy = (modes) => fmt(Math.round(d3.sum(trips.filter((t) => modes.includes(t.mode)), (t) => lineLengthKm(t.coords))));
   const items = [
     [fmt(flights.length), 'Flights'],
     [fmt(Math.round(flightKm)), 'Flight km'],
-    [fmt(Math.round(tripKm)), 'Road/rail/sea km'],
     [fmt(state.agg.airports.length), 'Airports'],
+    [kmBy(['road', 'bus', 'other']), 'Road km'],
+    [kmBy(['train']), 'Rail km'],
+    [kmBy(['boat']), 'Sea km'],
+    [fmt(allCities().length), 'Cities'],
     [`${visitedCountries().size}<small class="muted">/${COUNTRIES.length}</small>`, 'Countries'],
     [`${visitedCount()}<small class="muted">/${state.tcc.length}</small>`, 'TCC visited'],
   ];
@@ -1546,13 +1549,77 @@ function cityForm() {
     <div id="city-results" class="list"></div>`;
 }
 
+// "Zürich HB" -> "Zürich", "Stockholm (Stadsgården)" -> "Stockholm", "Åbo / Turku" -> "Åbo".
+const cleanCity = (name) =>
+  String(name || '')
+    .replace(/^[A-Z0-9]{3} · /, '')
+    .replace(/\s*\(.*\)\s*$/, '')
+    .split(' / ')[0]
+    .replace(/\s+(HB|SBB|Centraal|Central|C|station|Station|Hbf|Bahnhof|Gare)$/, '')
+    .trim();
+
+// Airports whose OurAirports municipality is a suburb or region rather than
+// the city they serve.
+const AIRPORT_CITY = {
+  ACE: 'Lanzarote', AYT: 'Antalya', BGY: 'Milan', BSL: 'Basel', BVA: 'Paris', CDG: 'Paris', CEB: 'Cebu', CGK: 'Jakarta',
+  CIA: 'Rome', DCA: 'Washington', DME: 'Moscow', FCO: 'Rome', GZP: 'Alanya', HND: 'Tokyo', IAD: 'Washington', ICN: 'Seoul',
+  IST: 'Istanbul', KUL: 'Kuala Lumpur', LCY: 'London', LGW: 'London', LPA: 'Gran Canaria', LTN: 'London', LYS: 'Lyon',
+  MXP: 'Milan', NRT: 'Tokyo', ORY: 'Paris', PMI: 'Palma', SAW: 'Istanbul', STN: 'London', SVO: 'Moscow', TPE: 'Taipei',
+  VKO: 'Moscow', YUL: 'Montreal', YYZ: 'Toronto',
+};
+
+/** The city an airport serves: "London/Gatwick, West Sussex" -> "London". */
+function airportCity(code) {
+  if (AIRPORT_CITY[code]) return AIRPORT_CITY[code];
+  const a = state.airports[code];
+  return (a[1] || a[0]).split(',')[0].split('/')[0];
+}
+
+const cityKey = (name) => name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+/**
+ * Every city you've been to in the selected period: cities you added, trip
+ * stops and the cities your airports serve. The same name (ignoring accents),
+ * or places within 5 km of each other, count once.
+ */
+function allCities() {
+  const out = [];
+  const add = (name, lon, lat, via, mode) => {
+    name = cleanCity(name);
+    if (!name || name.startsWith('(')) return;
+    const key = cityKey(name);
+    const hit = out.find((c) => c.key === key || distanceKm([c.lon, c.lat], [lon, lat]) < 5);
+    if (hit) {
+      hit.via.add(via);
+      if (mode) hit.modes.add(mode);
+      return;
+    }
+    out.push({ name, key, lon, lat, via: new Set([via]), modes: new Set(mode ? [mode] : []) });
+  };
+  for (const c of state.cities) if (inYear(c.date)) add(c.name, c.lon, c.lat, 'city', c.mode);
+  for (const t of filteredTrips()) for (const w of t.waypoints) add(w.name, w.lon, w.lat, 'trip', TRIP_TO_VISIT[t.mode]);
+  for (const a of state.agg.airports) {
+    const ap = state.airports[a.code];
+    add(airportCity(a.code), ap[4], ap[3], 'airport', 'plane');
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name));
+}
+
 function cityList() {
   const list = state.cities.slice().sort((a, b) => (b.date || '').localeCompare(a.date || '') || a.name.localeCompare(b.name));
   const stops = (state.cityPoints || []).filter((c) => c.kind === 'stop');
   return `
     <p class="muted small">Cities you added show as pink rings, trip stops as white rings. Both add to the heatmap; cities also mark their country as visited.
     Add more under <a href="#" class="link-btn" data-action="goto-add">Add</a>.</p>
-    <h2>Cities you visited (${list.length})</h2>
+    ${(() => {
+      const cities = allCities();
+      return `<h2>All cities visited (${cities.length})</h2>
+      <p class="muted small">Cities you added, trip stops and the cities of airports you flew to. The same city counts once.</p>
+      <div class="city-chips">${cities
+        .map((c) => `<span class="pill" title="${[...c.via].join(', ')}">${modeIcons([...c.modes])} ${esc(c.name)}</span>`)
+        .join('')}</div>`;
+    })()}
+    <h2>Cities you added (${list.length})</h2>
     <div class="list">
       ${list
         .map(
