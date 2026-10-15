@@ -378,6 +378,26 @@ export function createMap(container, { onHover, onClick, onMove }) {
   }
   map.on('zoomend', updateLabels);
 
+  // City name labels, beside each city ring. Shown only once the scale bar
+  // reads 50 km or less (under ~1 km per pixel at the map centre), where
+  // they no longer crowd each other.
+  let cityLabels = [];
+  function setCityLabels(list) {
+    for (const m of cityLabels) m.remove();
+    cityLabels = list.map((c) => {
+      const el = document.createElement('div');
+      el.className = 'city-label';
+      el.textContent = c.name;
+      return new maplibregl.Marker({ element: el, anchor: 'left', offset: [8, 0], opacityWhenCovered: 0 }).setLngLat(c.lngLat).addTo(map);
+    });
+    updateCityLabels();
+  }
+  function updateCityLabels() {
+    const mpp = (78271.52 * Math.cos((map.getCenter().lat * Math.PI) / 180)) / 2 ** map.getZoom();
+    document.body.classList.toggle('city-labels-far', mpp >= 1000);
+  }
+  map.on('moveend', updateCityLabels);
+
   return {
     map,
     ready,
@@ -404,6 +424,7 @@ export function createMap(container, { onHover, onClick, onMove }) {
       map.setProjection({ type });
     },
     setAirportLabels,
+    setCityLabels,
     setLabelFilter(fn) {
       labelFilter = fn;
       updateLabels();

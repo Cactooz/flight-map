@@ -582,6 +582,7 @@ function drawMovements() {
   M.setData('trips', tripsGeoJson(trips));
   state.cityPoints = cityPoints();
   M.setData('cities', citiesGeoJson(state.cityPoints));
+  M.setCityLabels(state.cityPoints.map((c) => ({ name: c.name, lngLat: [c.lon, c.lat] })));
   M.setData('heat', heatGeoJson(trips, agg.airports, state.cityPoints));
   applyHighlight();
   drawLegend(scales);
@@ -609,6 +610,7 @@ function applyView() {
   document.body.classList.toggle('hide-labels', !v.flights);
   M.setVisible(['trips', 'trips-boat', 'trips-hit'], v.trips);
   M.setVisible('cities', v.cities);
+  document.body.classList.toggle('hide-cities', !v.cities);
   M.setVisible('heat', v.heat);
   M.setHeatmap({ radius: +v.heatRadius, intensity: +v.heatIntensity, opacity: +v.heatOpacity });
   $('#heat-settings').hidden = !v.heat;

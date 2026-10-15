@@ -72,6 +72,16 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; font-si
   text-shadow: 0 0 3px #0b1220, 0 0 3px #0b1220, 0 0 2px #0b1220;
 }
 body.hide-labels .ap-label { display: none !important; }
+.city-label {
+  color: #f8fafc;
+  font-size: 11px;
+  font-style: italic;
+  white-space: nowrap;
+  pointer-events: none;
+  text-shadow: 0 0 3px #0b1220, 0 0 3px #0b1220, 0 0 2px #0b1220;
+}
+body.city-labels-far .city-label,
+body.hide-cities .city-label { display: none !important; }
 
 #tooltip {
   z-index: 6;
