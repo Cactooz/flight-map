@@ -67,25 +67,39 @@ function loopImage() {
 export const HEAT_LEVEL_KM = [2, 0.5, 0.125, 0.03125];
 const HEAT_LEVEL_ZOOM = [0, 7, 9, 11]; // zoom at which each level is fully in
 
+// Heatmap weight of one visit (one flight at an airport, one day in a city,
+// one pass along a trip line).
+export const HEAT_UNIT = 3;
+
+// heatmap-radius at zoom z for the radius setting (same stops as setHeatmap).
+const heatRadiusAt = (radius, z) =>
+  z <= 5 ? radius * (0.5 + 0.1 * z) : z <= 12 ? radius * (1 + (1.5 * (z - 5)) / 7) : radius * (2.5 + (2.5 * (z - 12)) / 5);
+
 /**
- * heatmap-weight: places use their own weight `w`; line samples (`lvl`) are
- * weighted by the spacing of the finest active level times a per-km factor
- * that grows with zoom (on-screen spacing doubles per zoom level), so a
- * travelled line glows about as much as a visited place at every zoom.
+ * heatmap-weight: places use their own weight `w` (HEAT_UNIT per visit). Line
+ * samples (`lvl`) are weighted so a line passed once peaks at the same
+ * density as a place visited once, at every zoom and heatmap radius.
+ *
+ * The heatmap kernel is a Gaussian with sigma = radius / 3, so a point of
+ * weight w peaks at w, and a row of samples of weight v spaced s px apart
+ * peaks at v / s * sigma * sqrt(2 pi). Solving for v with s = spacing in km
+ * converted to px (Mercator: 2^z / (78.27 km * cos(lat)) px per km) gives the
+ * weight below; `k` is 1 / cos(lat) of the sample and `n` the times the trip
+ * was made.
  */
-function heatWeightExpr(maxLevel) {
-  const perKm = (z) => 0.0032 * 2 ** (0.8 * z);
+function heatWeightExpr(maxLevel, radius) {
   const stops = [];
-  for (const z of [0, 5, 6, 7, 8, 9, 10, 11, 12, 14, 17]) {
+  for (let z = 0; z <= 18; z++) {
     let level = 0;
     HEAT_LEVEL_ZOOM.forEach((lz, l) => {
       if (z >= lz && l <= maxLevel) level = l;
     });
-    const w = perKm(z) * HEAT_LEVEL_KM[level];
-    // Line samples count once per time the trip was made (`n`).
-    stops.push(z, ['case', ['has', 'lvl'], ['case', ['<=', ['get', 'lvl'], level], ['*', w, ['coalesce', ['get', 'n'], 1]], 0], ['get', 'w']]);
+    const sigma = heatRadiusAt(radius, z) / 3;
+    const w = (HEAT_UNIT * HEAT_LEVEL_KM[level] * 2 ** z) / (78.27 * sigma * Math.sqrt(2 * Math.PI));
+    const line = ['*', w, ['coalesce', ['get', 'k'], 1], ['coalesce', ['get', 'n'], 1]];
+    stops.push(z, ['case', ['has', 'lvl'], ['case', ['<=', ['get', 'lvl'], level], line, 0], ['get', 'w']]);
   }
-  return ['interpolate', ['linear'], ['zoom'], ...stops];
+  return ['interpolate', ['exponential', 2], ['zoom'], ...stops];
 }
 
 // Line width factor for repeated trips: 1 for once, about 2 for 20 times, max 2.5.
@@ -197,7 +211,7 @@ export function createMap(container, { onHover, onClick, onMove }) {
           source: 'heat',
           layout: { visibility: 'none' },
           paint: {
-            'heatmap-weight': heatWeightExpr(3),
+            'heatmap-weight': heatWeightExpr(3, 12),
             // Radius, intensity and opacity are set from the layer settings (setHeatmap).
             'heatmap-opacity': 0.6,
             'heatmap-color': [
@@ -354,6 +368,8 @@ export function createMap(container, { onHover, onClick, onMove }) {
   map.on('click', (ev) => onClick(pick(ev.point), ev));
   map.on('move', () => onMove?.());
 
+  const heat = { radius: 12, maxLevel: 3 };
+
   // HTML labels for airports with flights (no glyph server needed).
   let labels = [];
   function setAirportLabels(list) {
@@ -412,13 +428,16 @@ export function createMap(container, { onHover, onClick, onMove }) {
     },
     /** radius in px at zoom ~6, intensity multiplier, opacity 0–1. */
     setHeatmap({ radius, intensity, opacity }) {
+      heat.radius = radius;
       map.setPaintProperty('heat', 'heatmap-radius', ['interpolate', ['linear'], ['zoom'], 0, radius * 0.5, 5, radius, 12, radius * 2.5, 17, radius * 5]);
       map.setPaintProperty('heat', 'heatmap-intensity', ['interpolate', ['linear'], ['zoom'], 0, intensity * 0.6, 9, intensity * 1.5]);
       map.setPaintProperty('heat', 'heatmap-opacity', opacity);
+      map.setPaintProperty('heat', 'heatmap-weight', heatWeightExpr(heat.maxLevel, heat.radius));
     },
     /** Finest line-sample level present in the heatmap data (fewer levels for very long trips). */
     setHeatLineDetail(maxLevel) {
-      map.setPaintProperty('heat', 'heatmap-weight', heatWeightExpr(maxLevel));
+      heat.maxLevel = maxLevel;
+      map.setPaintProperty('heat', 'heatmap-weight', heatWeightExpr(heat.maxLevel, heat.radius));
     },
     setProjection(type) {
       map.setProjection({ type });

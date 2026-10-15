@@ -32,8 +32,10 @@ have visited, on an OpenStreetMap basemap.
   the map, with an optional date and how you got there. Cities show as rings,
   add to the heatmap and mark their country as visited; the *Cities* tab lists
   them all.
-- **Heatmap:** shows where you have been most, built from points along your
-  trips and the airports you used.
+- **Heatmap:** shows where you have been most. Every visit counts the same:
+  one flight at an airport, one day in a city (up to 30) and one pass along a
+  trip line glow equally bright, so going back and forth on a train line
+  matches an airport you flew to twice.
 - **Countries:** the 330-entry TCC list.
   - Destinations are ticked automatically from airports and from the places
     your trips pass through.

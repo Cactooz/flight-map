@@ -1,5 +1,5 @@
 import { parseFlightCsv, parseAirportField } from './csv.js';
-import { createMap, BASEMAPS, HEAT_LEVEL_KM } from './map.js';
+import { createMap, BASEMAPS, HEAT_LEVEL_KM, HEAT_UNIT } from './map.js';
 import { greatCircle, mercatorPx, distanceKm, lineLengthKm, sampleLine, createPolygonIndex } from './geo.js';
 import { MODES, routeTrip, searchPlaces, parseTrackFile, placeName } from './trips.js';
 import { COUNTRIES, CONTINENTS, TCC_CONTINENTS } from './countries.js';
@@ -492,14 +492,14 @@ function citiesGeoJson(points) {
 
 function heatGeoJson(trips, airports, cities = []) {
   const features = [];
-  // Places (cities, airports) carry a fixed weight `w`; points sampled along
-  // trip lines carry a detail level `lvl` and are weighted per kilometre in the
-  // map style, so a long line doesn't outshine the places on it.
-  // A city glows in proportion to the days spent there (1 by default), the
-  // same way a route flown several times glows more.
+  // Every visit weighs the same: one flight at an airport, one day in a city,
+  // one stop on a trip (times the trip was made) and one pass along a trip
+  // line (see heatWeightExpr in map.js) all add HEAT_UNIT. So going back and
+  // forth on a train line once glows like an airport flown to twice.
   for (const c of cities) {
-    if (c.kind === 'airport' && !c.days) continue; // a transfer: already counted through its airport
-    features.push({ type: 'Feature', properties: { w: 3 * Math.min(c.days || 1, 30) }, geometry: { type: 'Point', coordinates: [c.lon, c.lat] } });
+    const visits = Math.max(c.days || 0, d3.sum(c.trips, timesOf));
+    if (!visits) continue; // an airport city: already counted through its airport
+    features.push({ type: 'Feature', properties: { w: HEAT_UNIT * Math.min(visits, 30) }, geometry: { type: 'Point', coordinates: [c.lon, c.lat] } });
   }
   // Trip lines: nested samples (see HEAT_LEVEL_KM in map.js). The finest level
   // is dropped for very long totals to keep the point count reasonable.
@@ -511,12 +511,12 @@ function heatGeoJson(trips, airports, cities = []) {
   for (const t of trips) {
     sampleLine(t.coords, fine).forEach((p, i) => {
       // n: times the trip was made; repeated trips glow more, like repeated routes.
-      features.push({ type: 'Feature', properties: { lvl: levelOf(i), n: timesOf(t) }, geometry: { type: 'Point', coordinates: p } });
+      features.push({ type: 'Feature', properties: { lvl: levelOf(i), n: timesOf(t), k: +(1 / Math.cos((p[1] * Math.PI) / 180)).toFixed(3) }, geometry: { type: 'Point', coordinates: p } });
     });
   }
   M.setHeatLineDetail(maxLevel);
   for (const a of airports) {
-    features.push({ type: 'Feature', properties: { w: Math.min(7, 2.5 + Math.sqrt(a.count)) }, geometry: { type: 'Point', coordinates: coord(a.code) } });
+    features.push({ type: 'Feature', properties: { w: HEAT_UNIT * a.count }, geometry: { type: 'Point', coordinates: coord(a.code) } });
   }
   return { type: 'FeatureCollection', features };
 }
