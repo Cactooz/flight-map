@@ -846,6 +846,7 @@ function initPanel() {
     else if (action === 'reroute') rerouteStraight();
     else if (action === 'cancel-draft') cancelDraft();
     else if (action === 'save-draft') saveDraft();
+    else if (action === 'wp-add') addTypedStops();
     else if (action === 'wp-remove') removeWaypoint(+value);
     else if (action === 'wp-up') moveWaypoint(+value, -1);
     else if (action === 'wp-down') moveWaypoint(+value, 1);
@@ -1368,7 +1369,7 @@ function initTripsTab() {
   $('#trips-list').addEventListener('keydown', (ev) => {
     if (ev.target.id === 'wp-search' && ev.key === 'Enter') {
       ev.preventDefault();
-      runSearch(ev.target.value);
+      addTypedStops();
     }
     if (ev.target.id === 'city-search' && ev.key === 'Enter') {
       ev.preventDefault();
@@ -1498,7 +1499,7 @@ function cancelDraft() {
 
 function addWaypoint(w) {
   if (!state.draft || !w) return;
-  state.draft.waypoints.push({ name: w.name, lon: +w.lon, lat: +w.lat });
+  state.draft.waypoints.push({ name: w.name, ...(w.detail ? { detail: w.detail } : {}), lon: +w.lon, lat: +w.lat });
   state.searchResults = [];
   M.setData('draft', draftGeoJson());
   renderTrips();
@@ -1517,6 +1518,50 @@ function moveWaypoint(i, delta) {
   [wps[i], wps[j]] = [wps[j], wps[i]];
   M.setData('draft', draftGeoJson());
   renderTrips();
+}
+
+const splitStops = (text) =>
+  text
+    .split(/\s*(?:,|;|→|->|–|—|\s-\s)\s*/)
+    .map((x) => x.trim())
+    .filter(Boolean);
+
+/**
+ * Adds the stops typed in the search box. Several stops ("Stockholm, Lund")
+ * are each looked up and added in order using the best match; a single
+ * place shows the matches to pick from (unless `auto`, used on save).
+ */
+async function addTypedStops(auto = false) {
+  const input = $('#wp-search');
+  const text = input?.value.trim();
+  if (!text) return true;
+  const parts = splitStops(text);
+  if (parts.length === 1 && !auto) {
+    await runSearch(parts[0]);
+    return false;
+  }
+  const box = $('#wp-results');
+  const found = [];
+  for (const [i, q] of parts.entries()) {
+    box.innerHTML = `<p class="muted small">Looking up ${i + 1} / ${parts.length}: ${esc(q)}…</p>`;
+    let res = [];
+    try {
+      res = await searchPlaces(q, state.airports);
+    } catch (err) {
+      box.innerHTML = `<p class="warn">${esc(err.message)}</p>`;
+      return false;
+    }
+    if (!res.length) {
+      box.innerHTML = `<p class="warn">No place found for "${esc(q)}".</p>`;
+      return false;
+    }
+    found.push(res[0]);
+  }
+  for (const r of found) state.draft.waypoints.push({ name: r.name, detail: r.detail, lon: +r.lon, lat: +r.lat });
+  state.searchResults = [];
+  M.setData('draft', draftGeoJson());
+  renderTrips();
+  return true;
 }
 
 async function runSearch(q) {
@@ -1541,18 +1586,22 @@ function renderSearchResults() {
 
 async function saveDraft() {
   const d = state.draft;
+  // Stops still typed in the box are added first (this re-renders the form).
+  if (!(await addTypedStops(true))) return;
   const msg = $('#draft-msg');
   // Imported tracks without stops keep their recorded geometry.
   const keepTrack = d.id && d.waypoints.length === 0 && d.coords;
   if (!keepTrack && d.waypoints.length < 2) {
-    msg.innerHTML = '<p class="warn">Add at least two stops.</p>';
+    msg.innerHTML = '<p class="warn">Add a start and an end, e.g. type "Stockholm, Lund".</p>';
     return;
   }
   msg.innerHTML = '<p class="muted small">Finding route…</p>';
   let { coords, routedBy } = d;
   let warning = null;
   if (!keepTrack) ({ coords, routedBy, warning } = await routeTrip(d.mode, d.waypoints));
-  const trip = { id: d.id || uid(), mode: d.mode, name: d.name.trim(), date: d.date, waypoints: d.waypoints, coords, routedBy };
+  // Without a name, call it after its start and end ("Stockholm – Lund").
+  const name = d.name.trim() || (d.waypoints.length > 1 ? `${d.waypoints[0].name} – ${d.waypoints[d.waypoints.length - 1].name}` : '');
+  const trip = { id: d.id || uid(), mode: d.mode, name, date: d.date, waypoints: d.waypoints, coords, routedBy };
   const i = state.trips.findIndex((t) => t.id === trip.id);
   if (i >= 0) state.trips[i] = trip;
   else state.trips.push(trip);
@@ -1610,13 +1659,13 @@ function renderTrips() {
             .map(([k, m]) => `<option value="${k}" ${k === d.mode ? 'selected' : ''}>${m.icon} ${m.label}</option>`)
             .join('')}</select></label>
           <label>Date <input type="date" data-field="date" value="${esc(d.date)}" /></label>
-          <label class="full">Name <input data-field="name" value="${esc(d.name)}" placeholder="e.g. Norway road trip" /></label>
+          <label class="full">Name <input data-field="name" value="${esc(d.name)}" placeholder="Optional, e.g. Norway road trip" /></label>
         </div>
-        <h2>Stops</h2>
+        <h2>Route</h2>
         <ol class="wp-list">
           ${d.waypoints
             .map(
-              (w, i) => `<li><span>${esc(w.name)}</span>
+              (w, i, all) => `<li><span class="wp-role">${i === 0 ? 'Start' : i === all.length - 1 ? 'End' : 'Via'}</span><span title="${esc(w.detail || '')}">${esc(w.name)}</span>
                 <span class="wp-btns">
                   <button type="button" data-action="wp-up" data-value="${i}" aria-label="Move up">↑</button>
                   <button type="button" data-action="wp-down" data-value="${i}" aria-label="Move down">↓</button>
@@ -1626,7 +1675,11 @@ function renderTrips() {
             .join('')}
         </ol>
         ${d.waypoints.length === 0 && d.coords ? '<p class="muted small">Imported track: its recorded path is kept.</p>' : ''}
-        <input id="wp-search" type="search" placeholder="Search a place or airport code, then Enter" autocomplete="off" />
+        <div class="wp-add">
+          <input id="wp-search" type="search" placeholder="${d.waypoints.length ? 'Next stop, e.g. Lund' : 'Start and end, e.g. Stockholm, Lund'}" autocomplete="off" />
+          <button type="button" data-action="wp-add">Add</button>
+        </div>
+        <p class="muted small">Separate several stops with commas or →. One place shows matches to pick from; airport codes work too.</p>
         <div id="wp-results" class="list"></div>
         <label class="small check"><input type="checkbox" data-field="clickToAdd" ${d.clickToAdd ? 'checked' : ''}/> Add stops by clicking the map</label>
         <p class="muted small">${

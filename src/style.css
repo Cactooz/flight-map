@@ -310,7 +310,7 @@ button.primary:hover { background: #ffbe5c; }
 .wp-list { margin: 0 0 8px; padding-left: 22px; }
 .wp-list li { padding: 3px 0; }
 .wp-list li { display: list-item; }
-.wp-list li > span:first-child { display: inline-block; max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
+.wp-list li > span:nth-child(2) { display: inline-block; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
 .wp-btns { float: right; display: inline-flex; gap: 2px; }
 .wp-btns button { padding: 0 6px; font-size: 12px; }
 #wp-search { width: 100%; margin: 4px 0; }
@@ -359,3 +359,8 @@ button.primary:hover { background: #ffbe5c; }
 .city-form button { grid-column: 1 / -1; }
 .city-form button.on { border-color: var(--accent); background: rgba(255, 173, 51, 0.15); }
 #legend .ring { display: inline-block; width: 8px; height: 8px; border: 2px solid #f8fafc; border-radius: 50%; background: #0b1220; margin: 0 8px 0 2px; vertical-align: -1px; }
+
+.wp-add { display: grid; grid-template-columns: 1fr auto; gap: 6px; margin: 4px 0; }
+.wp-add #wp-search { margin: 0; }
+.wp-role { display: inline-block; width: 44px; margin-right: 4px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; }
+.wp-list { list-style: none; padding-left: 0; }
