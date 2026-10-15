@@ -95,6 +95,11 @@ function normDate(text) {
 }
 const DATE_HINT = 'YYYY, YYYY-MM or YYYY-MM-DD';
 
+/** How many times a trip was made (commutes, cottage trips…); 1 by default. */
+const timesOf = (t) => Math.max(1, Math.round(+t.times || 1));
+/** Total distance of a trip including repeats. */
+const tripKm = (t) => lineLengthKm(t.coords) * timesOf(t);
+
 const pct = (a, b) => (b ? Math.round((a / b) * 100) : 0);
 
 const VISIT_MODES = {
@@ -459,7 +464,7 @@ function tripsGeoJson(trips) {
     type: 'FeatureCollection',
     features: trips.map((t) => ({
       type: 'Feature',
-      properties: { id: t.id, mode: t.mode, color: (MODES[t.mode] || MODES.other).color },
+      properties: { id: t.id, mode: t.mode, color: (MODES[t.mode] || MODES.other).color, n: timesOf(t) },
       geometry: { type: 'LineString', coordinates: t.coords },
     })),
   };
@@ -505,7 +510,8 @@ function heatGeoJson(trips, airports, cities = []) {
   const levelOf = (i) => HEAT_LEVEL_KM.findIndex((km) => i % Math.round(km / fine) === 0);
   for (const t of trips) {
     sampleLine(t.coords, fine).forEach((p, i) => {
-      features.push({ type: 'Feature', properties: { lvl: levelOf(i) }, geometry: { type: 'Point', coordinates: p } });
+      // n: times the trip was made; repeated trips glow more, like repeated routes.
+      features.push({ type: 'Feature', properties: { lvl: levelOf(i), n: timesOf(t) }, geometry: { type: 'Point', coordinates: p } });
     });
   }
   M.setHeatLineDetail(maxLevel);
@@ -688,7 +694,7 @@ function onHover(hit, ev) {
   } else if (hit.kind === 'trip') {
     const t = state.trips.find((x) => x.id === p.id);
     if (!t) return hideTooltip();
-    showTooltip(ev, `<div class="t-title">${MODES[t.mode]?.icon || ''} ${esc(t.name || 'Trip')}</div><div class="t-sub">${esc(t.date)} · ${fmt(Math.round(lineLengthKm(t.coords)))} km</div>`);
+    showTooltip(ev, `<div class="t-title">${MODES[t.mode]?.icon || ''} ${esc(t.name || 'Trip')}${timesOf(t) > 1 ? ` <span class="muted">×${timesOf(t)}</span>` : ''}</div><div class="t-sub">${esc(t.date)} · ${fmt(Math.round(lineLengthKm(t.coords)))} km${timesOf(t) > 1 ? ` · ${fmt(Math.round(tripKm(t)))} km in total` : ''}</div>`);
   } else if (hit.kind === 'dest') {
     const t = state.tcc[p.idx];
     const st = visitStatus(p.idx);
@@ -1066,7 +1072,7 @@ function renderStats() {
   const flights = filteredFlights();
   const trips = filteredTrips();
   const flightKm = d3.sum(flights, (f) => airportKm(f.from, f.to));
-  const kmBy = (modes) => fmt(Math.round(d3.sum(trips.filter((t) => modes.includes(t.mode)), (t) => lineLengthKm(t.coords))));
+  const kmBy = (modes) => fmt(Math.round(d3.sum(trips.filter((t) => modes.includes(t.mode)), tripKm)));
   const items = [
     [fmt(flights.length), 'Flights'],
     [fmt(Math.round(flightKm)), 'Flight km'],
@@ -1226,7 +1232,7 @@ function renderOverview() {
       const dests = [...evidence()].filter(([, e]) => e.trips.has(t.id)).map(([idx]) => state.tcc[idx].name);
       el.innerHTML = card(
         `${MODES[t.mode]?.icon || ''} ${esc(t.name || 'Trip')}`,
-        `${esc(t.date || 'No date')} · ${MODES[t.mode]?.label || t.mode} · ${fmt(Math.round(lineLengthKm(t.coords)))} km`,
+        `${esc(t.date || 'No date')} · ${MODES[t.mode]?.label || t.mode} · ${fmt(Math.round(lineLengthKm(t.coords)))} km${timesOf(t) > 1 ? ` · done ${timesOf(t)} times (${fmt(Math.round(tripKm(t)))} km)` : ''}`,
         `${t.waypoints.length ? `<ol class="wp-view">${t.waypoints.map((w) => `<li>${esc(w.name)}</li>`).join('')}</ol>` : ''}
         ${dests.length ? `<p class="small">Destinations: ${dests.map(esc).join(', ')}</p>` : ''}
         ${t.routedBy === 'straight' ? '<p class="muted small">Drawn as straight lines (no route found).</p>' : ''}
@@ -1829,7 +1835,7 @@ function startDraft(base) {
 function editTrip(id) {
   const t = state.trips.find((x) => x.id === id);
   if (!t) return;
-  startDraft({ id: t.id, mode: t.mode, name: t.name, date: t.date, waypoints: t.waypoints.map((w) => ({ ...w })), clickToAdd: false, coords: t.coords, routedBy: t.routedBy });
+  startDraft({ id: t.id, mode: t.mode, name: t.name, date: t.date, times: timesOf(t), waypoints: t.waypoints.map((w) => ({ ...w })), clickToAdd: false, coords: t.coords, routedBy: t.routedBy });
 }
 
 function cancelDraft() {
@@ -1949,7 +1955,8 @@ async function saveDraft() {
   d.date = date;
   // Without a name, call it after its start and end ("Stockholm – Lund").
   const name = d.name.trim() || (d.waypoints.length > 1 ? `${d.waypoints[0].name} – ${d.waypoints[d.waypoints.length - 1].name}` : '');
-  const trip = { id: d.id || uid(), mode: d.mode, name, date: d.date, waypoints: d.waypoints, coords, routedBy };
+  const times = timesOf(d);
+  const trip = { id: d.id || uid(), mode: d.mode, name, date: d.date, waypoints: d.waypoints, coords, routedBy, ...(times > 1 ? { times } : {}) };
   const i = state.trips.findIndex((t) => t.id === trip.id);
   if (i >= 0) state.trips[i] = trip;
   else state.trips.push(trip);
@@ -2008,7 +2015,8 @@ function renderTrips() {
             .map(([k, m]) => `<option value="${k}" ${k === d.mode ? 'selected' : ''}>${m.icon} ${m.label}</option>`)
             .join('')}</select></label>
           <label>Date <input data-field="date" value="${esc(d.date)}" placeholder="${DATE_HINT}" inputmode="numeric" /></label>
-          <label class="full">Name <input data-field="name" value="${esc(d.name)}" placeholder="Optional, e.g. Norway road trip" /></label>
+          <label>Name <input data-field="name" value="${esc(d.name)}" placeholder="Optional, e.g. Commute" /></label>
+          <label title="For trips you've made several times, e.g. a commute or the drive to the cottage">Times done <input type="number" min="1" step="1" data-field="times" value="${timesOf(d)}" /></label>
         </div>
         <h2>Route</h2>
         <ol class="wp-list">
@@ -2066,7 +2074,7 @@ function renderTripList() {
     km: f.from === f.to ? 0 : airportKm(f.from, f.to),
     f,
   }));
-  const trips = filteredTrips().map((t) => ({ kind: t.mode, date: t.date || '', time: '', km: lineLengthKm(t.coords), t }));
+  const trips = filteredTrips().map((t) => ({ kind: t.mode, date: t.date || '', time: '', km: tripKm(t), t }));
   const visits = state.cities.filter((c) => inYear(c.date)).map((c) => ({ kind: 'city', date: c.date || '', time: '', km: 0, c }));
   const all = [...flights, ...trips, ...visits];
   const kinds = [['all', 'All', all.length], ['flight', '✈️ Flights', flights.length]];
@@ -2104,7 +2112,7 @@ function renderTripList() {
           </div>`
         : `<div class="list-item" data-action="trip" data-value="${x.t.id}">
           <div><div>${MODES[x.t.mode]?.icon || ''} ${esc(x.t.name || 'Trip')}</div>
-          <div class="sub">${esc(x.date || 'No date')}${x.t.routedBy === 'straight' ? ' · straight lines' : ''}</div></div>
+          <div class="sub">${esc(x.date || 'No date')}${timesOf(x.t) > 1 ? ` · ×${timesOf(x.t)}` : ''}${x.t.routedBy === 'straight' ? ' · straight lines' : ''}</div></div>
           <span class="pill" style="border-color:${MODES[x.t.mode]?.color}">${fmt(Math.round(x.km))} km</span>
         </div>`;
   $('#trips-list').innerHTML = shown.length

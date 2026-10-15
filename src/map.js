@@ -82,10 +82,14 @@ function heatWeightExpr(maxLevel) {
       if (z >= lz && l <= maxLevel) level = l;
     });
     const w = perKm(z) * HEAT_LEVEL_KM[level];
-    stops.push(z, ['case', ['has', 'lvl'], ['case', ['<=', ['get', 'lvl'], level], w, 0], ['get', 'w']]);
+    // Line samples count once per time the trip was made (`n`).
+    stops.push(z, ['case', ['has', 'lvl'], ['case', ['<=', ['get', 'lvl'], level], ['*', w, ['coalesce', ['get', 'n'], 1]], 0], ['get', 'w']]);
   }
   return ['interpolate', ['linear'], ['zoom'], ...stops];
 }
+
+// Line width factor for repeated trips: 1 for once, about 2 for 20 times, max 2.5.
+const TIMES_WIDTH = ['min', 2.5, ['+', 1, ['*', 0.35, ['ln', ['coalesce', ['get', 'n'], 1]]]]];
 
 /** Arrow size expression: shrinks both arrows of a short route equally (down to 60%) until zoomed in. */
 function arrowSizeExpr() {
@@ -209,7 +213,8 @@ export function createMap(container, { onHover, onClick, onMove }) {
           source: 'trips',
           filter: ['!=', ['get', 'mode'], 'boat'],
           layout: { 'line-cap': 'round', 'line-join': 'round' },
-          paint: { 'line-color': ['get', 'color'], 'line-width': ['interpolate', ['linear'], ['zoom'], 1, 1.6, 8, 3.5], 'line-opacity': 0.9 },
+          // Trips made many times are drawn a bit thicker.
+          paint: { 'line-color': ['get', 'color'], 'line-width': ['interpolate', ['linear'], ['zoom'], 1, ['*', 1.6, TIMES_WIDTH], 8, ['*', 3.5, TIMES_WIDTH]], 'line-opacity': 0.9 },
         },
         {
           id: 'trips-boat',
@@ -217,7 +222,7 @@ export function createMap(container, { onHover, onClick, onMove }) {
           source: 'trips',
           filter: ['==', ['get', 'mode'], 'boat'],
           layout: { 'line-cap': 'round', 'line-join': 'round' },
-          paint: { 'line-color': ['get', 'color'], 'line-width': ['interpolate', ['linear'], ['zoom'], 1, 1.4, 8, 3], 'line-dasharray': [2, 2], 'line-opacity': 0.85 },
+          paint: { 'line-color': ['get', 'color'], 'line-width': ['interpolate', ['linear'], ['zoom'], 1, ['*', 1.4, TIMES_WIDTH], 8, ['*', 3, TIMES_WIDTH]], 'line-dasharray': [2, 2], 'line-opacity': 0.85 },
         },
         { id: 'trips-hit', type: 'line', source: 'trips', paint: { 'line-color': '#000', 'line-opacity': 0.001, 'line-width': 12 } },
         // Cities: hollow rings, so they read differently from airports (solid dots).

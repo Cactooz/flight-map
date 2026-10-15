@@ -24,6 +24,9 @@ have visited, on an OpenStreetMap basemap.
   - **Boat:** along shipping lanes, computed offline with `searoute-ts`.
 
   You can also import recorded tracks from GPX, KML or GeoJSON files.
+  For a trip you repeat (a commute, the drive to the cottage), set *Times
+  done* instead of adding it again. It counts that many times in the km
+  totals and the heatmap, and its line gets a bit thicker. No dates needed.
 - **Cities:** every place on your trips and every airport city counts as a
   visited city. Add other cities in the *Add* tab, by searching or by clicking
   the map, with an optional date and how you got there. Cities show as rings,
@@ -82,7 +85,7 @@ When adding new files the site needs at runtime, add them to `FILES` in
 | --- | --- |
 | `data/flights.csv` | Flights shown by default. Same format as the myFlightradar24 export (Settings → Export flights). Notes, seats and flight reason were stripped from the bundled copy. |
 | `data/visited.json` | Destinations visited without a recorded flight or trip, and how: `{ "andorra": "car", "iceland": "boat" }` (`plane`, `car`, `train`, `boat` or `other`). Seeded from your TCC tracking spreadsheet (as `other`). |
-| `data/trips.json` | Road / rail / boat trips. Use *Trips → Export trips.json* on the site to produce it. |
+| `data/trips.json` | Road / rail / boat trips (optional `times` for repeated trips). Use *Trips → Export trips.json* on the site to produce it. |
 | `data/cities.json` | Extra cities you visited, with optional date, travel mode and days spent (days scale the heatmap). Use *Add → Export cities.json* to produce it. |
 
 Anything you import, add or tick on the site is saved in that browser's local
