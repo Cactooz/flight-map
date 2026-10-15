@@ -72,11 +72,12 @@ const pct = (a, b) => (b ? Math.round((a / b) * 100) : 0);
 const VISIT_MODES = {
   plane: { label: 'Airplane', icon: '✈️' },
   car: { label: 'Car', icon: '🚗' },
+  bus: { label: 'Bus', icon: '🚌' },
   train: { label: 'Train', icon: '🚆' },
   boat: { label: 'Boat', icon: '🚢' },
   other: { label: 'Other / unknown', icon: '📍' },
 };
-const TRIP_TO_VISIT = { road: 'car', train: 'train', boat: 'boat', other: 'other' };
+const TRIP_TO_VISIT = { road: 'car', bus: 'bus', train: 'train', boat: 'boat', other: 'other' };
 
 /** visited.json is either ["id", …] or { "id": "mode", … }. */
 function normalizeVisited(data, known) {
@@ -1352,7 +1353,7 @@ async function saveDraft() {
   M.fitCoords(trip.coords);
 }
 
-const needsRouting = (t) => t.routedBy === 'straight' && (t.mode === 'road' || t.mode === 'train') && t.waypoints.length > 1;
+const needsRouting = (t) => t.routedBy === 'straight' && ['road', 'bus', 'train'].includes(t.mode) && t.waypoints.length > 1;
 
 /** Re-runs road/rail routing for trips saved as straight lines (e.g. added while offline). */
 async function rerouteStraight() {
@@ -1414,7 +1415,7 @@ function renderTrips() {
         <div id="wp-results" class="list"></div>
         <label class="small check"><input type="checkbox" data-field="clickToAdd" ${d.clickToAdd ? 'checked' : ''}/> Add stops by clicking the map</label>
         <p class="muted small">${
-          d.mode === 'road'
+          d.mode === 'road' || d.mode === 'bus'
             ? 'Routed along roads (OSRM, OpenStreetMap data).'
             : d.mode === 'train'
               ? 'Routed along railway lines (BRouter rail profile, OpenStreetMap data).'

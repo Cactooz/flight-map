@@ -3,7 +3,8 @@
 import { greatCircle, simplify, unwrap, lineLengthKm } from './geo.js';
 
 export const MODES = {
-  road: { label: 'Road', icon: '🚗', color: '#4cc9f0' },
+  road: { label: 'Car', icon: '🚗', color: '#4cc9f0' },
+  bus: { label: 'Bus', icon: '🚌', color: '#facc15' },
   train: { label: 'Train', icon: '🚆', color: '#c084fc' },
   boat: { label: 'Boat / cruise', icon: '🚢', color: '#e2e8f0' },
   other: { label: 'Other', icon: '📍', color: '#94a3b8' },
@@ -76,7 +77,8 @@ async function routeSea(waypoints) {
   return unwrap(coords);
 }
 
-const ROUTERS = { road: routeRoad, train: routeTrain, boat: routeSea };
+// Buses follow roads too.
+const ROUTERS = { road: routeRoad, bus: routeRoad, train: routeTrain, boat: routeSea };
 
 /**
  * Computes a trip's line. Falls back to great-circle segments when the routing
