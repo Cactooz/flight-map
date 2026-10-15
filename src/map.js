@@ -60,6 +60,33 @@ function loopImage() {
   return g.getImageData(0, 0, 64, 64);
 }
 
+// Trip lines are sampled for the heatmap at nested levels of detail: level 0
+// every 2 km, level 1 adds points every 500 m, level 2 every 125 m, level 3
+// every 31 m. Finer levels fade in as you zoom in, so the samples always sit
+// closer together than the heatmap radius and a line reads as a line.
+export const HEAT_LEVEL_KM = [2, 0.5, 0.125, 0.03125];
+const HEAT_LEVEL_ZOOM = [0, 7, 9, 11]; // zoom at which each level is fully in
+
+/**
+ * heatmap-weight: places use their own weight `w`; line samples (`lvl`) are
+ * weighted by the spacing of the finest active level times a per-km factor
+ * that grows with zoom (on-screen spacing doubles per zoom level), so a
+ * travelled line glows about as much as a visited place at every zoom.
+ */
+function heatWeightExpr(maxLevel) {
+  const perKm = (z) => 0.0032 * 2 ** (0.8 * z);
+  const stops = [];
+  for (const z of [0, 5, 6, 7, 8, 9, 10, 11, 12, 14, 17]) {
+    let level = 0;
+    HEAT_LEVEL_ZOOM.forEach((lz, l) => {
+      if (z >= lz && l <= maxLevel) level = l;
+    });
+    const w = perKm(z) * HEAT_LEVEL_KM[level];
+    stops.push(z, ['case', ['has', 'lvl'], ['case', ['<=', ['get', 'lvl'], level], w, 0], ['get', 'w']]);
+  }
+  return ['interpolate', ['linear'], ['zoom'], ...stops];
+}
+
 /** Arrow size expression: shrinks both arrows of a short route equally (down to 60%) until zoomed in. */
 function arrowSizeExpr() {
   const stops = [];
@@ -166,16 +193,7 @@ export function createMap(container, { onHover, onClick, onMove }) {
           source: 'heat',
           layout: { visibility: 'none' },
           paint: {
-            // Line samples are weighted by their on-screen spacing relative to the
-            // heatmap radius at each zoom (spacing doubles per zoom level), so a
-            // travelled line glows about as much as a visited place at any zoom.
-            'heatmap-weight': [
-              'interpolate', ['exponential', 2], ['zoom'],
-              0, ['case', ['has', 'step'], ['*', ['get', 'step'], 0.0032], ['get', 'w']],
-              5, ['case', ['has', 'step'], ['*', ['get', 'step'], 0.05], ['get', 'w']],
-              8, ['case', ['has', 'step'], ['*', ['get', 'step'], 0.25], ['get', 'w']],
-              12, ['case', ['has', 'step'], ['min', 6, ['*', ['get', 'step'], 2.6]], ['get', 'w']],
-            ],
+            'heatmap-weight': heatWeightExpr(3),
             // Radius, intensity and opacity are set from the layer settings (setHeatmap).
             'heatmap-opacity': 0.6,
             'heatmap-color': [
@@ -358,9 +376,13 @@ export function createMap(container, { onHover, onClick, onMove }) {
     },
     /** radius in px at zoom ~6, intensity multiplier, opacity 0–1. */
     setHeatmap({ radius, intensity, opacity }) {
-      map.setPaintProperty('heat', 'heatmap-radius', ['interpolate', ['linear'], ['zoom'], 0, radius * 0.5, 5, radius, 12, radius * 2.5]);
+      map.setPaintProperty('heat', 'heatmap-radius', ['interpolate', ['linear'], ['zoom'], 0, radius * 0.5, 5, radius, 12, radius * 2.5, 17, radius * 5]);
       map.setPaintProperty('heat', 'heatmap-intensity', ['interpolate', ['linear'], ['zoom'], 0, intensity * 0.6, 9, intensity * 1.5]);
       map.setPaintProperty('heat', 'heatmap-opacity', opacity);
+    },
+    /** Finest line-sample level present in the heatmap data (fewer levels for very long trips). */
+    setHeatLineDetail(maxLevel) {
+      map.setPaintProperty('heat', 'heatmap-weight', heatWeightExpr(maxLevel));
     },
     setProjection(type) {
       map.setProjection({ type });

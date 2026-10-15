@@ -1,5 +1,5 @@
 import { parseFlightCsv, parseAirportField } from './csv.js';
-import { createMap, BASEMAPS } from './map.js';
+import { createMap, BASEMAPS, HEAT_LEVEL_KM } from './map.js';
 import { greatCircle, mercatorPx, distanceKm, lineLengthKm, sampleLine, createPolygonIndex } from './geo.js';
 import { MODES, routeTrip, searchPlaces, parseTrackFile, placeName } from './trips.js';
 import { COUNTRIES, CONTINENTS, TCC_CONTINENTS } from './countries.js';
@@ -470,19 +470,28 @@ function citiesGeoJson(points) {
 
 function heatGeoJson(trips, airports, cities = []) {
   const features = [];
-  // Places (cities, airports) carry a fixed weight; points sampled along trip
-  // lines carry their spacing (`step`, km) and are weighted per kilometre in
-  // the map style, so a long line doesn't outshine the places on it.
+  // Places (cities, airports) carry a fixed weight `w`; points sampled along
+  // trip lines carry a detail level `lvl` and are weighted per kilometre in the
+  // map style, so a long line doesn't outshine the places on it.
   // A city glows in proportion to the days spent there (1 by default), the
   // same way a route flown several times glows more.
   for (const c of cities) {
     if (c.kind === 'airport' && !c.days) continue; // a transfer: already counted through its airport
     features.push({ type: 'Feature', properties: { w: 3 * Math.min(c.days || 1, 30) }, geometry: { type: 'Point', coordinates: [c.lon, c.lat] } });
   }
+  // Trip lines: nested samples (see HEAT_LEVEL_KM in map.js). The finest level
+  // is dropped for very long totals to keep the point count reasonable.
+  const totalKm = d3.sum(trips, (t) => lineLengthKm(t.coords));
+  let maxLevel = HEAT_LEVEL_KM.length - 1;
+  while (maxLevel > 0 && totalKm / HEAT_LEVEL_KM[maxLevel] > 150000) maxLevel--;
+  const fine = HEAT_LEVEL_KM[maxLevel];
+  const levelOf = (i) => HEAT_LEVEL_KM.findIndex((km) => i % Math.round(km / fine) === 0);
   for (const t of trips) {
-    const step = Math.max(2, lineLengthKm(t.coords) / 4000);
-    for (const p of sampleLine(t.coords, step)) features.push({ type: 'Feature', properties: { step }, geometry: { type: 'Point', coordinates: p } });
+    sampleLine(t.coords, fine).forEach((p, i) => {
+      features.push({ type: 'Feature', properties: { lvl: levelOf(i) }, geometry: { type: 'Point', coordinates: p } });
+    });
   }
+  M.setHeatLineDetail(maxLevel);
   for (const a of airports) {
     features.push({ type: 'Feature', properties: { w: Math.min(7, 2.5 + Math.sqrt(a.count)) }, geometry: { type: 'Point', coordinates: coord(a.code) } });
   }
