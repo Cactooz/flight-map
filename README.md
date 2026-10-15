@@ -110,5 +110,7 @@ This writes the following files:
 - `data/tcc.json`: the destination list.
 - `data/tcc-shapes.json`: Natural Earth polygons, merged into one shape per
   destination.
+- `data/rail.json`, the offline railway network, is built separately with
+  `node scripts/build-rail.mjs ne_10m_railroads.geojson`.
 - The browser libraries in `vendor/`: MapLibre GL, d3, topojson-client, and
   the bundled sea-routing network.
