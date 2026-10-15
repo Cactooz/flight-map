@@ -377,3 +377,5 @@ button.primary:hover { background: #ffbe5c; }
 #tab-flights .stats { margin-bottom: 10px; }
 .city-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
 .city-chips .pill { font-size: 12px; }
+.add-chip { cursor: pointer; border-style: dashed; color: var(--accent); background: none; }
+.quick-city { font-size: 12px; padding: 3px 10px; border-radius: 999px; min-width: 180px; background: var(--bg); border: 1px solid var(--accent); }

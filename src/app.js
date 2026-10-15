@@ -58,6 +58,8 @@ const state = {
   cityAdd: false, // clicking the map adds a city
   cityResults: [],
   cityForm: { date: '', mode: '' },
+  quickCity: false, // inline quick-add box in the Cities tab is open
+  cityNote: '', // message after adding cities (e.g. duplicates skipped)
   view: { flights: true, trips: true, heat: false, allAirports: false, rail: false, basemap: 'flat', globe: false, cities: true, ...HEAT_DEFAULTS },
   draft: null, // { id, mode, name, date, waypoints: [], clickToAdd }
   searchResults: [],
@@ -855,6 +857,12 @@ function initPanel() {
     } else if (action === 'city-result') addCity(state.cityResults[+value]);
     else if (action === 'delete-city') deleteCity(value);
     else if (action === 'city-add') addTypedCities();
+    else if (action === 'quick-city') {
+      state.quickCity = true;
+      state.cityNote = '';
+      renderCities();
+      $('#quick-city').focus();
+    }
     else if (action === 'goto-add') showTab('data');
     else if (action === 'city-add-toggle') setCityAdd(!state.cityAdd);
     else if (action === 'reroute') rerouteStraight();
@@ -1414,6 +1422,16 @@ function initTripsTab() {
       addTypedStops();
     }
   });
+  $('#cities-panel').addEventListener('keydown', (ev) => {
+    if (ev.target.id !== 'quick-city') return;
+    if (ev.key === 'Escape') {
+      state.quickCity = false;
+      renderCities();
+    } else if (ev.key === 'Enter') {
+      ev.preventDefault();
+      quickAddCities(ev.target.value);
+    }
+  });
   $('#city-form-box').addEventListener('keydown', (ev) => {
     if (ev.target.id === 'city-search' && ev.key === 'Enter') {
       ev.preventDefault();
@@ -1455,18 +1473,36 @@ function addCity(r) {
   if (r) addCities([r]);
 }
 
-function addCities(list) {
-  const { mode, date } = state.cityForm;
+/** A city you've already been to (any year): same name, or within 5 km. */
+function knownCity(name, lon, lat) {
+  const key = cityKey(cleanCity(name));
+  return allCities(true).find((c) => c.key === key || (lon != null && distanceKm([c.lon, c.lat], [lon, lat]) < 5));
+}
+
+/** Adds cities, skipping ones already visited. Returns the names skipped. */
+function addCities(list, { mode = state.cityForm.mode, date = state.cityForm.date } = {}) {
+  const skipped = [];
   for (const r of list) {
     // Strip the airport code prefix search results get ("CPH · Copenhagen").
     const name = String(r.name).replace(/^[A-Z0-9]{3} · /, '');
+    const known = knownCity(name, +r.lon, +r.lat);
+    if (known) {
+      skipped.push(known.name);
+      continue;
+    }
     state.cities.push({ id: uid(), name, lon: +(+r.lon).toFixed(5), lat: +(+r.lat).toFixed(5), date, mode });
   }
   state.cityResults = [];
+  state.cityNote = skipped.length ? `Already visited, not added again: ${skipped.join(', ')}.` : '';
+  if (skipped.length === list.length) {
+    renderCities();
+    return skipped;
+  }
   saveCities();
   evidenceCache = null;
   buildYearFilter();
   update();
+  return skipped;
 }
 
 async function addCityAt(lon, lat) {
@@ -1483,6 +1519,34 @@ function deleteCity(id) {
   evidenceCache = null;
   state.sel.city = null;
   update();
+}
+
+/** Quick add from the Cities tab: best match for each name, no date or travel mode. */
+async function quickAddCities(text) {
+  const msg = $('#quick-city-msg');
+  const found = [];
+  const skipped = [];
+  for (const q of splitStops(text)) {
+    const known = knownCity(q);
+    if (known) {
+      skipped.push(known.name);
+      continue;
+    }
+    msg.innerHTML = `<p class="muted small">Looking up ${esc(q)}…</p>`;
+    try {
+      const res = await searchPlaces(q, state.airports);
+      if (res.length) found.push(res[0]);
+      else skipped.push(`${q} (not found)`);
+    } catch (err) {
+      msg.innerHTML = `<p class="warn">${esc(err.message)}</p>`;
+      return;
+    }
+  }
+  state.quickCity = false;
+  const dupes = found.length ? addCities(found, { mode: '', date: '' }) : [];
+  const all = [...skipped, ...dupes];
+  state.cityNote = all.length ? `Not added (already visited or not found): ${all.join(', ')}.` : '';
+  renderCities();
 }
 
 /** "Paris, Lyon" adds each city (best match); a single name shows matches to pick from. */
@@ -1545,7 +1609,8 @@ function cityForm() {
       </select>
       <button type="button" data-action="city-add-toggle" class="${state.cityAdd ? 'on' : ''}">${state.cityAdd ? 'Done clicking' : 'Click map to add'}</button>
     </div>
-    <div id="city-results" class="list"></div>`;
+    <div id="city-results" class="list"></div>
+    ${state.cityNote ? `<p class="muted small">${esc(state.cityNote)}</p>` : ''}`;
 }
 
 // "Zürich HB" -> "Zürich", "Stockholm (Stadsgården)" -> "Stockholm", "Åbo / Turku" -> "Åbo".
@@ -1581,7 +1646,7 @@ const cityKey = (name) => name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').
  * stops and the cities your airports serve. The same name (ignoring accents),
  * or places within 5 km of each other, count once.
  */
-function allCities() {
+function allCities(allYears = false) {
   const out = [];
   const add = (name, lon, lat, via, mode, extra = {}) => {
     name = cleanCity(name);
@@ -1598,10 +1663,10 @@ function allCities() {
     if (extra.airport) hit.airports.push(extra.airport);
     if (extra.cityId && !hit.cityId) Object.assign(hit, { cityId: extra.cityId, date: extra.date || '' });
   };
-  for (const c of state.cities) if (inYear(c.date)) add(c.name, c.lon, c.lat, 'city', c.mode, { cityId: c.id, date: c.date });
-  for (const t of filteredTrips()) for (const w of t.waypoints) add(w.name, w.lon, w.lat, 'trip', TRIP_TO_VISIT[t.mode], { trip: t });
+  for (const c of state.cities) if (allYears || inYear(c.date)) add(c.name, c.lon, c.lat, 'city', c.mode, { cityId: c.id, date: c.date });
+  for (const t of allYears ? state.trips : filteredTrips()) for (const w of t.waypoints) add(w.name, w.lon, w.lat, 'trip', TRIP_TO_VISIT[t.mode], { trip: t });
   // Airport cities are placed at the airport (their ring surrounds its dot).
-  for (const a of state.agg.airports) {
+  for (const a of allYears ? aggregate(state.flights).airports : state.agg.airports) {
     const ap = state.airports[a.code];
     add(airportCity(a.code), ap[4], ap[3], 'airport', 'plane', { airport: a.code });
   }
@@ -1619,7 +1684,12 @@ function cityList() {
       <p class="muted small">From your trips, flights and the cities you added. The same city counts once.</p>
       <div class="city-chips">${cities
         .map((c) => `<span class="pill" title="${[...c.via].join(', ')}">${modeIcons([...c.modes])} ${esc(c.name)}</span>`)
-        .join('')}</div>`;
+        .join('')}${
+        state.quickCity
+          ? `<input id="quick-city" class="quick-city" placeholder="City, city… then Enter" autocomplete="off" />`
+          : `<button type="button" class="pill add-chip" data-action="quick-city" title="Quickly add cities you've visited (no date needed)">+ Add</button>`
+      }</div>
+      <div id="quick-city-msg">${state.cityNote ? `<p class="muted small">${esc(state.cityNote)}</p>` : ''}</div>`;
     })()}
     <h2>Extra cities you added (${list.length})</h2>
     <div class="list">
