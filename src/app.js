@@ -51,7 +51,7 @@ const state = {
   manual: new Map(), // destination id -> how it was visited ('plane' | 'car' | 'train' | 'boat' | 'other')
   year: 'all',
   sel: { airport: null, route: null, trip: null, dest: null, anyAirport: null },
-  view: { flights: true, trips: true, heat: false, allAirports: false, rail: false, basemap: 'dark', globe: false },
+  view: { flights: true, trips: true, heat: false, allAirports: false, rail: false, basemap: 'flat', globe: false },
   draft: null, // { id, mode, name, date, waypoints: [], clickToAdd }
   searchResults: [],
   countryFilter: 'all',
@@ -183,6 +183,7 @@ async function init() {
   state.manual = applyVisitedChanges(state.bundledVisited, store.get(LS_VISITED, null), known);
   state.countryIdx = new Map(COUNTRIES.map((c) => [c.iso, c]));
   Object.assign(state.view, store.get(LS_VIEW, {}));
+  if (!BASEMAPS[state.view.basemap]) state.view.basemap = 'flat'; // e.g. the removed CARTO map
 
   M = createMap($('#map'), { onHover, onClick, onMove: hideTooltip });
   await M.ready;

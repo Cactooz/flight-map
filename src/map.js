@@ -1,19 +1,19 @@
-// MapLibre map: OpenStreetMap basemap plus flight, trip, heatmap and country layers.
+// MapLibre map: flat country map (optionally OpenStreetMap tiles) plus flight,
+// trip, heatmap and country layers.
 
 import * as maplibregl from '../vendor/maplibre-gl.mjs';
 
 const EMPTY = { type: 'FeatureCollection', features: [] };
 
 export const BASEMAPS = {
-  dark: { label: 'Dark (OSM / CARTO)' },
+  flat: { label: 'Flat (offline)' },
   osm: { label: 'OpenStreetMap' },
-  none: { label: 'None' },
 };
 
 const COLORS = {
-  ocean: '#0d1626',
-  land: '#1b2536',
-  border: '#2b3850',
+  ocean: '#1f3b5a',
+  land: '#3b4250',
+  border: '#596274',
   auto: '#22b07d',
   manual: '#4f7cc4',
 };
@@ -83,13 +83,6 @@ export function createMap(container, { onHover, onClick, onMove }) {
     style: {
       version: 8,
       sources: {
-        dark: {
-          type: 'raster',
-          tiles: ['a', 'b', 'c', 'd'].map((s) => `https://${s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png`),
-          tileSize: 256,
-          maxzoom: 19,
-          attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors © <a href="https://carto.com/attributions">CARTO</a>',
-        },
         osm: {
           type: 'raster',
           tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
@@ -117,9 +110,10 @@ export function createMap(container, { onHover, onClick, onMove }) {
       },
       layers: [
         { id: 'background', type: 'background', paint: { 'background-color': COLORS.ocean } },
-        // Own country shapes are drawn under the tiles so the map still works offline.
-        { id: 'land-base', type: 'fill', source: 'land', paint: { 'fill-color': COLORS.land, 'fill-outline-color': COLORS.border } },
-        { id: 'basemap-dark', type: 'raster', source: 'dark', paint: { 'raster-opacity': 0.95 } },
+        // Flat map from the bundled country shapes: gray land, blue water. Needs no
+        // tile server or API key; OpenStreetMap tiles can be shown on top instead.
+        { id: 'land-base', type: 'fill', source: 'land', paint: { 'fill-color': COLORS.land } },
+        { id: 'land-border', type: 'line', source: 'land', paint: { 'line-color': COLORS.border, 'line-width': 0.6 } },
         { id: 'basemap-osm', type: 'raster', source: 'osm', layout: { visibility: 'none' }, paint: { 'raster-saturation': -0.2 } },
         {
           id: 'land-visited',
@@ -129,7 +123,7 @@ export function createMap(container, { onHover, onClick, onMove }) {
           paint: {
             'fill-color': ['match', ['get', 'status'], 'manual', COLORS.manual, COLORS.auto],
             // Other parts of a visited country get a lighter fill.
-            'fill-opacity': ['match', ['get', 'status'], 'country', 0.14, 0.32],
+            'fill-opacity': ['match', ['get', 'status'], 'country', 0.25, 0.55],
           },
         },
         {
@@ -267,7 +261,7 @@ export function createMap(container, { onHover, onClick, onMove }) {
   // Tile errors (offline, blocked hosts) should not spam the console; the
   // local country shapes underneath keep the map usable.
   map.on('error', (ev) => {
-    if (ev?.sourceId && ['dark', 'osm', 'rail'].includes(ev.sourceId)) return;
+    if (ev?.sourceId && ['osm', 'rail'].includes(ev.sourceId)) return;
     console.warn(ev.error || ev);
   });
 
@@ -329,7 +323,6 @@ export function createMap(container, { onHover, onClick, onMove }) {
       for (const id of [].concat(layerIds)) if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none');
     },
     setBasemap(name) {
-      this.setVisible('basemap-dark', name === 'dark');
       this.setVisible('basemap-osm', name === 'osm');
     },
     setProjection(type) {

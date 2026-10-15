@@ -43,7 +43,7 @@ have visited, on an OpenStreetMap basemap.
   Hawaii as Oceania. The mapping is in `src/countries.js`.
 - **Local flights:** a flight that starts and ends at the same airport (e.g. a
   helicopter tour) is drawn as a loop at that airport.
-- **Map options:** a dark or standard OpenStreetMap basemap, a railway overlay
+- **Map options:** a flat offline map (gray land, blue water) or OpenStreetMap tiles, a railway overlay
   (OpenRailwayMap), a globe view, and a year filter.
 
 ## Running
@@ -76,7 +76,7 @@ light personal use:
 
 | Service | What it's used for |
 | --- | --- |
-| CARTO dark tiles and OpenStreetMap standard tiles | Basemaps |
+| OpenStreetMap standard tiles | Optional detailed basemap (the default flat map needs no tiles) |
 | OpenRailwayMap | Railway overlay |
 | [OSRM demo server](https://router.project-osrm.org/) | Road routing |
 | [BRouter](https://brouter.de/) | Rail routing |
