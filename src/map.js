@@ -210,7 +210,7 @@ export function createMap(container, { onHover, onClick, onMove }) {
           paint: {
             'circle-radius': ['interpolate', ['linear'], ['zoom'], 1, 2.2, 6, 4, 10, 6],
             'circle-color': '#0b1220',
-            'circle-stroke-color': ['match', ['get', 'kind'], 'manual', '#f9a8d4', '#f8fafc'],
+            'circle-stroke-color': '#f8fafc',
             'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 1, 1.2, 8, 2],
           },
         },

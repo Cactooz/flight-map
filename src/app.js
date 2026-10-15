@@ -447,7 +447,7 @@ function tripsGeoJson(trips) {
 }
 
 /**
- * City dots: cities you added plus every trip stop, merged when within ~3 km
+ * City dots: cities you added plus every place on a trip, merged when within ~3 km
  * (your own entry wins), so trip lines connect city to city.
  */
 function cityPoints() {
@@ -458,7 +458,7 @@ function cityPoints() {
     for (const w of t.waypoints) {
       const hit = near([w.lon, w.lat]);
       if (hit) hit.trips.push(t);
-      else out.push({ id: `stop:${t.id}:${w.lon},${w.lat}`, name: w.name, lon: w.lon, lat: w.lat, kind: 'stop', trips: [t] });
+      else out.push({ id: `stop:${t.id}:${w.lon},${w.lat}`, name: cleanCity(w.name) || w.name, lon: w.lon, lat: w.lat, kind: 'stop', trips: [t] });
     }
   }
   return out;
@@ -596,8 +596,7 @@ function drawLegend(scales) {
       .filter(([k]) => modes.has(k))
       .map(([k, m]) => `<div><span class="ln ${k === 'boat' ? 'dashed' : ''}" style="--c:${m.color}"></span>${m.label}</div>`)
       .join('')}
-    <div><span class="ring" style="border-color:#f9a8d4"></span>City you visited</div>
-    <div><span class="ring"></span>Trip stop</div>
+    <div><span class="ring"></span>City visited</div>
     <div><span class="sw" style="background:var(--auto)"></span>Visited (flights / trips)</div>
     <div><span class="sw" style="background:var(--manual)"></span>Visited (added manually)</div>
     <div><span class="sw" style="background:var(--auto);opacity:0.45"></span>Rest of a visited country</div>`;
@@ -677,7 +676,7 @@ function onHover(hit, ev) {
     showTooltip(
       ev,
       `<div class="t-title">${esc(c.name)}</div>
-       <div class="t-sub">${c.kind === 'manual' ? `City you visited${c.date ? ` · ${esc(c.date)}` : ''}` : 'Trip stop'}</div>
+       ${c.date ? `<div class="t-sub">${esc(c.date)}</div>` : ''}
        ${c.trips.length ? `<div class="t-sub">${c.trips.map((t) => `${MODES[t.mode]?.icon || ''} ${esc(t.name || t.date)}`).join('<br>')}</div>` : ''}`,
     );
   } else if (hit.kind === 'draft') {
@@ -1607,19 +1606,18 @@ function allCities() {
 
 function cityList() {
   const list = state.cities.slice().sort((a, b) => (b.date || '').localeCompare(a.date || '') || a.name.localeCompare(b.name));
-  const stops = (state.cityPoints || []).filter((c) => c.kind === 'stop');
   return `
-    <p class="muted small">Cities you added show as pink rings, trip stops as white rings. Both add to the heatmap; cities also mark their country as visited.
-    Add more under <a href="#" class="link-btn" data-action="goto-add">Add</a>.</p>
+    <p class="muted small">Every place on your trips and every airport you flew to counts as a visited city. Cities show as rings on the map and add to the heatmap.
+    Add other cities under <a href="#" class="link-btn" data-action="goto-add">Add</a>.</p>
     ${(() => {
       const cities = allCities();
       return `<h2>All cities visited (${cities.length})</h2>
-      <p class="muted small">Cities you added, trip stops and the cities of airports you flew to. The same city counts once.</p>
+      <p class="muted small">From your trips, flights and the cities you added. The same city counts once.</p>
       <div class="city-chips">${cities
         .map((c) => `<span class="pill" title="${[...c.via].join(', ')}">${modeIcons([...c.modes])} ${esc(c.name)}</span>`)
         .join('')}</div>`;
     })()}
-    <h2>Cities you added (${list.length})</h2>
+    <h2>Extra cities you added (${list.length})</h2>
     <div class="list">
       ${list
         .map(
@@ -1628,13 +1626,8 @@ function cityList() {
             <button type="button" class="close" data-action="delete-city" data-value="${c.id}" aria-label="Delete ${esc(c.name)}">✕</button>
           </div>`,
         )
-        .join('') || '<p class="muted small">No cities added yet.</p>'}
-    </div>
-    ${stops.length ? `<h2>Trip stops (${stops.length})</h2>
-    <div class="list">${stops
-      .sort((a, b) => a.name.localeCompare(b.name))
-      .map((c) => `<div class="list-item" data-action="trip" data-value="${c.trips[0].id}"><div><div>${esc(c.name)}</div><div class="sub">${c.trips.map((t) => `${MODES[t.mode]?.icon || ''} ${esc(t.name || t.date)}`).join(' · ')}</div></div></div>`)
-      .join('')}</div>` : ''}`;
+        .join('') || '<p class="muted small">None yet. Add cities you visited that aren\'t on a trip or flight.</p>'}
+    </div>`;
 }
 
 function startDraft(base) {
