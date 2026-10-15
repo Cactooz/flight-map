@@ -104,7 +104,7 @@ export function createMap(container, { onHover, onClick, onMove }) {
     center: [20, 30],
     zoom: 1.3,
     minZoom: 0.5,
-    maxZoom: 17,
+    maxZoom: 13.5, // narrowed further by latitude below
     dragRotate: false,
     pitchWithRotate: false,
     style: {
@@ -305,6 +305,17 @@ export function createMap(container, { onHover, onClick, onMove }) {
 
   map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-left');
   map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-right');
+
+  // Don't zoom in further than where the 100 px scale bar shows 500 m: closer
+  // adds nothing at the detail of this data. Metres per pixel depend on the
+  // latitude, so the limit follows the map centre.
+  const limitZoom = () => {
+    const lat = map.getCenter().lat;
+    const z = Math.log2((78271.52 * Math.cos((lat * Math.PI) / 180)) / 5.05);
+    map.setMaxZoom(Math.max(2, Math.min(13.9, z)));
+  };
+  map.on('moveend', limitZoom);
+  map.once('load', limitZoom);
 
   // Tile errors (offline, blocked hosts) should not spam the console; the
   // local country shapes underneath keep the map usable.
