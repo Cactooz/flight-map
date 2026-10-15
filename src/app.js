@@ -2,7 +2,7 @@ import { parseFlightCsv, parseAirportField } from './csv.js';
 import { createMap, BASEMAPS } from './map.js';
 import { greatCircle, mercatorPx, distanceKm, lineLengthKm, sampleLine, createPolygonIndex } from './geo.js';
 import { MODES, routeTrip, searchPlaces, parseTrackFile } from './trips.js';
-import { COUNTRIES, CONTINENTS } from './countries.js';
+import { COUNTRIES, CONTINENTS, TCC_CONTINENTS } from './countries.js';
 
 const d3 = window.d3;
 const topojson = window.topojson;
@@ -56,6 +56,7 @@ const state = {
   searchResults: [],
   countryFilter: 'all',
   countryView: 'countries', // 'countries' | 'tcc'
+  tccGroup: 'region', // 'region' | 'continent'
   countrySearch: '',
 };
 
@@ -697,6 +698,12 @@ function initPanel() {
     const id = ev.target.dataset.id;
     if (id) setManual(id, ev.target.value);
   });
+  for (const b of document.querySelectorAll('[data-tgroup]')) {
+    b.onclick = () => {
+      state.tccGroup = b.dataset.tgroup;
+      renderCountries();
+    };
+  }
   for (const b of document.querySelectorAll('[data-cview]')) {
     b.onclick = () => {
       state.countryView = b.dataset.cview;
@@ -1067,7 +1074,8 @@ function bar(label, v, total) {
 
 function renderCountries() {
   for (const b of document.querySelectorAll('[data-cview]')) b.setAttribute('aria-pressed', String(b.dataset.cview === state.countryView));
-  $('#tcc-controls').hidden = state.countryView !== 'tcc';
+  for (const b of document.querySelectorAll('[data-tgroup]')) b.setAttribute('aria-pressed', String(b.dataset.tgroup === state.tccGroup));
+  $('#tcc-controls').hidden = $('#tcc-search').hidden = state.countryView !== 'tcc';
   if (state.countryView === 'tcc') renderTccList();
   else renderCountryList();
 }
@@ -1103,22 +1111,25 @@ function renderCountryList() {
 
 function renderTccList() {
   const entries = state.tcc.map((t, idx) => ({ ...t, idx, status: visitStatus(idx) }));
-  // Destinations spanning two continents appear in both region lists but are one destination.
+  // Group by TCC region or by continent. Destinations spanning two continents
+  // appear in both groups but are one destination.
+  const byContinent = state.tccGroup === 'continent';
+  const groupsOf = byContinent ? (t) => t.cont.map((c) => TCC_CONTINENTS[c]) : regionsOf;
   const regions = new Map();
   for (const t of entries) {
-    for (const r of regionsOf(t)) {
+    for (const r of groupsOf(t)) {
       if (!regions.has(r)) regions.set(r, []);
       regions.get(r).push(t);
     }
   }
-  const order = [...new Set(state.tcc.map((t) => t.region))];
+  const order = byContinent ? Object.values(TCC_CONTINENTS).filter((c) => regions.has(c)) : [...new Set(state.tcc.map((t) => t.region))];
   const total = state.tcc.length;
   const visited = visitedCount();
   $('#country-progress').innerHTML = `
     <div class="progress-total"><span><b>${visited}</b> <span class="muted">of ${total} TCC destinations</span></span><span class="muted">${pct(visited, total)}%</span></div>
     <div class="progress"><div style="width:${pct(visited, total)}%"></div></div>
     <p class="muted small">${officialCount()} of 330 by official TCC numbering (Russia, Turkey and Egypt are one destination here but two on the TCC list).</p>
-    <h2>Per region</h2>
+    <h2>Per ${byContinent ? 'continent' : 'TCC region'}</h2>
     ${order.map((r) => bar(r, regions.get(r).filter((t) => t.status).length, regions.get(r).length)).join('')}`;
 
   const q = state.countrySearch;
@@ -1134,7 +1145,7 @@ function renderTccList() {
     const v = list.filter((t) => t.status).length;
     html.push(`<div class="region"><div class="region-head">${esc(region)}<span>${v} / ${list.length} · ${pct(v, list.length)}%</span></div>`);
     for (const t of shown) {
-      const other = regionsOf(t).filter((r) => r !== region);
+      const other = groupsOf(t).filter((r) => r !== region);
       const manual = state.manual.get(t.id) || '';
       const autoModes = t.status === 'auto' ? visitModes(t.idx).filter((m) => m !== manual || !manual) : [];
       html.push(`<div class="country">

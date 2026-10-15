@@ -343,3 +343,4 @@ button.primary:hover { background: #ffbe5c; }
 .mode-btns { display: flex; flex-wrap: wrap; gap: 6px; }
 .mode-btns button { font-size: 12px; padding: 4px 8px; }
 .mode-btns button.on { border-color: var(--manual); background: rgba(79, 124, 196, 0.25); }
+.small-seg button { font-size: 12px; padding: 4px 8px; }

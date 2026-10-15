@@ -17,7 +17,7 @@ import { presimplify, simplify, quantile } from 'topojson-simplify';
 import { feature, merge } from 'topojson-client';
 import { build } from 'esbuild';
 import { TCC, idOf } from '../src/tcc-list.js';
-import { COUNTRIES, TERRITORY_PARENT, DEBATED } from '../src/countries.js';
+import { COUNTRIES, TERRITORY_PARENT, DEBATED, CONTINENT_BY_REGION, CONTINENT_OVERRIDES } from '../src/countries.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const pkgDir = (name) => join(root, 'node_modules', name);
@@ -45,6 +45,9 @@ for (const e of entries) {
   if (DEBATED.includes(num)) e.sov = null;
   else e.sov = TERRITORY_PARENT[num] || e.c?.[0] || e.r?.[0].split('-')[0];
   if (e.sov && !countryIsos.has(e.sov)) throw new Error(`${e.name}: unknown country ${e.sov}`);
+}
+for (const id of Object.keys(CONTINENT_OVERRIDES)) {
+  if (!entries.some((e) => e.id === id)) throw new Error(`Continent override for unknown destination ${id}`);
 }
 const sovs = new Set(entries.map((e) => e.sov));
 for (const c of COUNTRIES) if (!sovs.has(c.iso)) throw new Error(`No destination for country ${c.name}`);
@@ -248,6 +251,7 @@ const tccOut = entries.map((e) => {
   return {
     id: e.id,
     n: e.n,
+    cont: CONTINENT_OVERRIDES[idOf(e)] || [CONTINENT_BY_REGION[e.region]],
     sov: e.sov,
     // The destination's own ISO country code; when it equals `sov` the
     // destination is an integral part of that country (Scotland, Crete, Hawaii)

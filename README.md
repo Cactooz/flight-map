@@ -37,6 +37,10 @@ have visited, on an OpenStreetMap basemap.
   countries you've visited, showing how you got there. Visiting a territory
   (Crete, Tasmania, the Canary Islands…) counts its country; visiting the
   country does not count its territories.
+- **TCC destinations by continent:** the TCC list can be grouped by TCC region
+  or by continent (with Antarctica). Islands follow geography: the Canary
+  Islands and Madeira count as Africa, Greenland and Bermuda as North America,
+  Hawaii as Oceania. The mapping is in `src/countries.js`.
 - **Local flights:** a flight that starts and ends at the same airport (e.g. a
   helicopter tour) is drawn as a loop at that airport.
 - **Map options:** a dark or standard OpenStreetMap basemap, a railway overlay

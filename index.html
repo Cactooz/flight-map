@@ -48,8 +48,14 @@
             <button type="button" data-cview="countries" aria-pressed="true">Countries</button>
             <button type="button" data-cview="tcc" aria-pressed="false">TCC destinations</button>
           </div>
-          <div id="country-progress"></div>
           <div id="tcc-controls" hidden>
+            <div class="seg small-seg" role="group" aria-label="Group destinations by">
+              <button type="button" data-tgroup="region" aria-pressed="true">By TCC region</button>
+              <button type="button" data-tgroup="continent" aria-pressed="false">By continent</button>
+            </div>
+          </div>
+          <div id="country-progress"></div>
+          <div id="tcc-search" hidden>
             <input id="country-search" type="search" placeholder="Search countries &amp; territories" autocomplete="off" />
             <div class="country-filter">
               <label><input type="radio" name="cfilter" value="all" checked /> All</label>

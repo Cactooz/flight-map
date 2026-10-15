@@ -4,6 +4,54 @@
 // Russia, Turkey and Egypt count towards both of their continents.
 
 export const CONTINENTS = { EU: 'Europe', AS: 'Asia', AF: 'Africa', NA: 'North America', SA: 'South America', OC: 'Oceania' };
+// Antarctica only has TCC destinations, no sovereign countries.
+export const TCC_CONTINENTS = { ...CONTINENTS, AN: 'Antarctica' };
+
+// Continent of each TCC destination: by TCC region, with geographic
+// exceptions by destination id. Russia, Turkey and Egypt are in two.
+export const CONTINENT_BY_REGION = {
+  'Pacific Ocean': 'OC',
+  'North America': 'NA',
+  'Central America': 'NA',
+  Caribbean: 'NA',
+  'South America': 'SA',
+  'Atlantic Ocean': 'EU',
+  'Europe & Mediterranean': 'EU',
+  Antarctica: 'AN',
+  Africa: 'AF',
+  'Middle East': 'AS',
+  'Indian Ocean': 'AF',
+  Asia: 'AS',
+};
+export const CONTINENT_OVERRIDES = {
+  // Pacific
+  'galapagos-islands': ['SA'],
+  'juan-fernandez-islands': ['SA'],
+  'ryukyu-islands': ['AS'],
+  // Atlantic
+  ascension: ['AF'],
+  bermuda: ['NA'],
+  'canary-islands': ['AF'],
+  'cape-verde-islands': ['AF'],
+  'falkland-islands': ['SA'],
+  'fernando-de-noronha': ['SA'],
+  greenland: ['NA'],
+  madeira: ['AF'],
+  'south-georgia-the-south-sandwich-islands': ['AN'],
+  'st-helena': ['AF'],
+  'tristan-da-cunha': ['AF'],
+  // Indian Ocean
+  'andaman-nicobar-islands': ['AS'],
+  'british-indian-ocean-territory': ['AS'],
+  'christmas-island': ['AS'],
+  'cocos-keeling-islands': ['AS'],
+  lakshadweep: ['AS'],
+  maldives: ['AS'],
+  // Two continents
+  russia: ['EU', 'AS'],
+  turkey: ['EU', 'AS'],
+  egypt: ['AF', 'AS'],
+};
 
 export const COUNTRIES = [
   { iso: 'AF', name: 'Afghanistan', continents: ['AS'] },
