@@ -379,3 +379,6 @@ button.primary:hover { background: #ffbe5c; }
 .city-chips .pill { font-size: 12px; }
 .add-chip { cursor: pointer; border-style: dashed; color: var(--accent); background: none; }
 .quick-city { font-size: 12px; padding: 3px 10px; border-radius: 999px; min-width: 180px; background: var(--bg); border: 1px solid var(--accent); }
+.city-edit label { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.city-edit input[type='date'] { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; }
+.city-edit { margin-bottom: 10px; }

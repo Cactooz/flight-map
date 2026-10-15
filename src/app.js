@@ -856,6 +856,10 @@ function initPanel() {
       }
     } else if (action === 'city-result') addCity(state.cityResults[+value]);
     else if (action === 'delete-city') deleteCity(value);
+    else if (action === 'set-city-mode') {
+      const [id, mode] = value.split(':');
+      updateCity(id, { mode });
+    }
     else if (action === 'city-add') addTypedCities();
     else if (action === 'quick-city') {
       state.quickCity = true;
@@ -1072,7 +1076,17 @@ function renderOverview() {
       el.innerHTML = card(
         `🏙️ ${esc(c.name)}`,
         `${c.date ? esc(c.date) : 'No date'}${idx >= 0 ? ` · ${esc(state.tcc[idx].name)}` : ''}${c.mode ? ` · ${VISIT_MODES[c.mode]?.icon || ''} ${VISIT_MODES[c.mode]?.label || ''}` : ''}`,
-        `<div class="row"><button type="button" data-action="delete-city" data-value="${c.id}">Delete city</button></div>`,
+        `<div class="city-edit">
+          <label>Date <input type="date" data-city-date="${c.id}" value="${esc(c.date || '')}" /></label>
+          <p class="small muted">How you got there:</p>
+          <div class="mode-btns">
+            ${Object.entries(VISIT_MODES)
+              .map(([k, m]) => `<button type="button" class="${c.mode === k ? 'on' : ''}" data-action="set-city-mode" data-value="${c.id}:${k}">${m.icon} ${m.label}</button>`)
+              .join('')}
+            ${c.mode ? `<button type="button" data-action="set-city-mode" data-value="${c.id}:">Clear</button>` : ''}
+          </div>
+        </div>
+        <div class="row"><button type="button" data-action="delete-city" data-value="${c.id}">Delete city</button></div>`,
       );
       return;
     }
@@ -1422,6 +1436,10 @@ function initTripsTab() {
       addTypedStops();
     }
   });
+  $('#details').addEventListener('change', (ev) => {
+    const id = ev.target.dataset.cityDate;
+    if (id) updateCity(id, { date: ev.target.value });
+  });
   $('#cities-panel').addEventListener('keydown', (ev) => {
     if (ev.target.id !== 'quick-city') return;
     if (ev.key === 'Escape') {
@@ -1509,6 +1527,18 @@ async function addCityAt(lon, lat) {
   const idx = state.tccAt([lon, lat]);
   const name = (await placeName(lon, lat)) || `${idx >= 0 ? `${state.tcc[idx].name} ` : ''}(${lat.toFixed(3)}, ${lon.toFixed(3)})`;
   addCity({ name, lon, lat });
+}
+
+/** Changes a city you added (date, travel mode) and saves it. */
+function updateCity(id, changes) {
+  const c = state.cities.find((x) => x.id === id);
+  if (!c) return;
+  Object.assign(c, changes);
+  saveCities();
+  evidenceCache = null;
+  buildYearFilter();
+  update();
+  select({ city: id });
 }
 
 function deleteCity(id) {
@@ -1696,7 +1726,7 @@ function cityList() {
       ${list
         .map(
           (c) => `<div class="list-item" data-action="city" data-value="${c.id}">
-            <div><div>🏙️ ${esc(c.name)}</div><div class="sub">${esc(c.date || 'No date')}${c.mode ? ` · ${VISIT_MODES[c.mode]?.icon || ''}` : ''}</div></div>
+            <div><div>🏙️ ${esc(c.name)}</div><div class="sub">${esc(c.date || 'No date')} · ${c.mode ? `${VISIT_MODES[c.mode]?.icon || ''} ${VISIT_MODES[c.mode]?.label || ''}` : 'way unknown'} · <span class="link-btn">edit</span></div></div>
             <button type="button" class="close" data-action="delete-city" data-value="${c.id}" aria-label="Delete ${esc(c.name)}">✕</button>
           </div>`,
         )
