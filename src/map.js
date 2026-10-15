@@ -208,8 +208,14 @@ export function createMap(container, { onHover, onClick, onMove }) {
           type: 'circle',
           source: 'cities',
           paint: {
-            'circle-radius': ['interpolate', ['linear'], ['zoom'], 1, 2.2, 6, 4, 10, 6],
-            'circle-color': '#0b1220',
+            // Cities known only through an airport get a wider ring around its dot.
+            'circle-radius': [
+              'interpolate', ['linear'], ['zoom'],
+              1, ['match', ['get', 'kind'], 'airport', 5, 2.2],
+              6, ['match', ['get', 'kind'], 'airport', 9, 4],
+              10, ['match', ['get', 'kind'], 'airport', 11, 6],
+            ],
+            'circle-color': ['match', ['get', 'kind'], 'airport', 'rgba(0,0,0,0)', '#0b1220'],
             'circle-stroke-color': '#f8fafc',
             'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 1, 1.2, 8, 2],
           },

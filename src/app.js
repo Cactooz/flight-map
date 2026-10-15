@@ -451,17 +451,12 @@ function tripsGeoJson(trips) {
  * (your own entry wins), so trip lines connect city to city.
  */
 function cityPoints() {
-  const out = [];
-  const near = (p) => out.find((c) => distanceKm([c.lon, c.lat], p) < 3);
-  for (const c of state.cities) if (inYear(c.date)) out.push({ ...c, kind: 'manual', trips: [] });
-  for (const t of filteredTrips()) {
-    for (const w of t.waypoints) {
-      const hit = near([w.lon, w.lat]);
-      if (hit) hit.trips.push(t);
-      else out.push({ id: `stop:${t.id}:${w.lon},${w.lat}`, name: cleanCity(w.name) || w.name, lon: w.lon, lat: w.lat, kind: 'stop', trips: [t] });
-    }
-  }
-  return out;
+  // Same list as the Cities count, so the map and the number always match.
+  return allCities().map((c) => ({
+    ...c,
+    id: c.cityId || `c:${c.key}`,
+    kind: c.cityId ? 'manual' : c.via.has('trip') ? 'stop' : 'airport',
+  }));
 }
 
 function citiesGeoJson(points) {
@@ -476,7 +471,10 @@ function heatGeoJson(trips, airports, cities = []) {
   // Places (cities, airports) carry a fixed weight; points sampled along trip
   // lines carry their spacing (`step`, km) and are weighted per kilometre in
   // the map style, so a long line doesn't outshine the places on it.
-  for (const c of cities) features.push({ type: 'Feature', properties: { w: 3 }, geometry: { type: 'Point', coordinates: [c.lon, c.lat] } });
+  for (const c of cities) {
+    if (c.kind === 'airport') continue; // already counted through its airport
+    features.push({ type: 'Feature', properties: { w: 3 }, geometry: { type: 'Point', coordinates: [c.lon, c.lat] } });
+  }
   for (const t of trips) {
     const step = Math.max(2, lineLengthKm(t.coords) / 4000);
     for (const p of sampleLine(t.coords, step)) features.push({ type: 'Feature', properties: { step }, geometry: { type: 'Point', coordinates: p } });
@@ -677,6 +675,7 @@ function onHover(hit, ev) {
       ev,
       `<div class="t-title">${esc(c.name)}</div>
        ${c.date ? `<div class="t-sub">${esc(c.date)}</div>` : ''}
+       ${c.airports.length ? `<div class="t-sub">✈️ ${c.airports.join(', ')}</div>` : ''}
        ${c.trips.length ? `<div class="t-sub">${c.trips.map((t) => `${MODES[t.mode]?.icon || ''} ${esc(t.name || t.date)}`).join('<br>')}</div>` : ''}`,
     );
   } else if (hit.kind === 'draft') {
@@ -708,8 +707,9 @@ function onClick(hit, ev) {
   if (!hit) return clearSelection();
   if (hit.kind === 'city') {
     const c = state.cityPoints.find((x) => x.id === hit.props.id);
-    if (c?.kind === 'manual') select({ city: c.id });
+    if (c?.cityId) select({ city: c.cityId });
     else if (c?.trips.length) select({ trip: c.trips[0].id });
+    else if (c?.airports.length) selectAirport(c.airports[0]);
     return;
   }
   if (hit.kind === 'airport') selectAirport(hit.props.code);
@@ -1583,23 +1583,27 @@ const cityKey = (name) => name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').
  */
 function allCities() {
   const out = [];
-  const add = (name, lon, lat, via, mode) => {
+  const add = (name, lon, lat, via, mode, extra = {}) => {
     name = cleanCity(name);
     if (!name || name.startsWith('(')) return;
     const key = cityKey(name);
-    const hit = out.find((c) => c.key === key || distanceKm([c.lon, c.lat], [lon, lat]) < 5);
-    if (hit) {
-      hit.via.add(via);
-      if (mode) hit.modes.add(mode);
-      return;
+    let hit = out.find((c) => c.key === key || distanceKm([c.lon, c.lat], [lon, lat]) < 5);
+    if (!hit) {
+      hit = { name, key, lon, lat, via: new Set(), modes: new Set(), trips: [], airports: [], date: '' };
+      out.push(hit);
     }
-    out.push({ name, key, lon, lat, via: new Set([via]), modes: new Set(mode ? [mode] : []) });
+    hit.via.add(via);
+    if (mode) hit.modes.add(mode);
+    if (extra.trip && !hit.trips.includes(extra.trip)) hit.trips.push(extra.trip);
+    if (extra.airport) hit.airports.push(extra.airport);
+    if (extra.cityId && !hit.cityId) Object.assign(hit, { cityId: extra.cityId, date: extra.date || '' });
   };
-  for (const c of state.cities) if (inYear(c.date)) add(c.name, c.lon, c.lat, 'city', c.mode);
-  for (const t of filteredTrips()) for (const w of t.waypoints) add(w.name, w.lon, w.lat, 'trip', TRIP_TO_VISIT[t.mode]);
+  for (const c of state.cities) if (inYear(c.date)) add(c.name, c.lon, c.lat, 'city', c.mode, { cityId: c.id, date: c.date });
+  for (const t of filteredTrips()) for (const w of t.waypoints) add(w.name, w.lon, w.lat, 'trip', TRIP_TO_VISIT[t.mode], { trip: t });
+  // Airport cities are placed at the airport (their ring surrounds its dot).
   for (const a of state.agg.airports) {
     const ap = state.airports[a.code];
-    add(airportCity(a.code), ap[4], ap[3], 'airport', 'plane');
+    add(airportCity(a.code), ap[4], ap[3], 'airport', 'plane', { airport: a.code });
   }
   return out.sort((a, b) => a.name.localeCompare(b.name));
 }
