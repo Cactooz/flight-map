@@ -319,7 +319,8 @@ export function createMap(container, { onHover, onClick, onMove }) {
       el.className = 'ap-label';
       el.textContent = a.code;
       el.dataset.count = a.count;
-      return new maplibregl.Marker({ element: el, anchor: 'bottom', offset: [0, -6] }).setLngLat(a.lngLat).addTo(map);
+      // Fully hidden (not just faded) when on the far side of the globe.
+      return new maplibregl.Marker({ element: el, anchor: 'bottom', offset: [0, -6], opacityWhenCovered: 0 }).setLngLat(a.lngLat).addTo(map);
     });
     updateLabels();
   }
