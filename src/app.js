@@ -1,10 +1,15 @@
 import { parseFlightCsv, parseAirportField } from './csv.js';
+import { createMap, BASEMAPS } from './map.js';
+import { greatCircle, mercatorPx, distanceKm, lineLengthKm, sampleLine, createPolygonIndex } from './geo.js';
+import { MODES, routeTrip, searchPlaces, parseTrackFile } from './trips.js';
 
 const d3 = window.d3;
 const topojson = window.topojson;
 
 const LS_FLIGHTS = 'flightmap.flights.v1';
 const LS_VISITED = 'flightmap.visited.v1';
+const LS_TRIPS = 'flightmap.trips.v1';
+const LS_VIEW = 'flightmap.view.v1';
 
 // --------------------------------------------------------------- storage
 
@@ -21,8 +26,9 @@ const store = {
     try {
       if (value == null) localStorage.removeItem(key);
       else localStorage.setItem(key, JSON.stringify(value));
+      return true;
     } catch {
-      /* storage unavailable (private mode etc.) */
+      return false;
     }
   },
 };
@@ -33,22 +39,30 @@ const state = {
   airports: {}, // IATA -> [name, city, cc, lat, lon, icao, tccIndex]
   icao: new Map(),
   tcc: [],
-  shapes: null,
-  flights: [], // resolved flights
-  flightSource: 'bundled',
+  features: [],
+  tccAt: () => -1,
+  flights: [],
   unresolved: [],
+  flightSource: 'bundled',
+  trips: [],
+  tripSource: 'bundled',
   manualVisited: new Set(),
   year: 'all',
-  selectedAirport: null,
-  selectedRoute: null,
-  selectedDest: null,
+  sel: { airport: null, route: null, trip: null, dest: null, anyAirport: null },
+  view: { flights: true, trips: true, heat: false, allAirports: false, rail: false, basemap: 'dark', globe: false },
+  draft: null, // { id, mode, name, date, waypoints: [], clickToAdd }
+  searchResults: [],
   countryFilter: 'all',
   countrySearch: '',
 };
 
+let M; // map wrapper
+let evidenceCache = null;
+
 const $ = (sel) => document.querySelector(sel);
 const fmt = d3.format(',');
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+const uid = () => Math.random().toString(36).slice(2, 10);
 
 // ------------------------------------------------------------- loading
 
@@ -70,71 +84,83 @@ function resolveAirport(ref) {
   return null;
 }
 
-/** Turns parsed CSV rows into flights with known airports. */
-function resolveFlights(rows) {
+function setFlights(rows, source) {
   const flights = [];
   const unresolved = [];
   for (const r of rows) {
     const from = resolveAirport(r.from);
     const to = resolveAirport(r.to);
-    if (!from || !to) {
-      unresolved.push(r);
-      continue;
-    }
-    flights.push({ ...r, from, to });
+    if (from && to) flights.push({ ...r, from, to });
+    else unresolved.push(r);
   }
-  return { flights, unresolved };
-}
-
-function setFlights(rows, source) {
-  const { flights, unresolved } = resolveFlights(rows);
   state.flights = flights.sort((a, b) => (a.date + a.depTime).localeCompare(b.date + b.depTime));
   state.unresolved = unresolved;
   state.flightSource = source;
-  state.selectedAirport = null;
-  state.selectedRoute = null;
-  buildYearFilter();
+  state.sel.airport = state.sel.route = null;
+  evidenceCache = null;
 }
 
-// The CSV rows are stored (not the resolved objects) so the airport database
-// can be updated without invalidating saved data.
+function setTrips(trips, source) {
+  state.trips = trips;
+  state.tripSource = source;
+  evidenceCache = null;
+}
+
+function saveTrips() {
+  const ok = store.set(LS_TRIPS, { source: 'edited', trips: state.trips });
+  state.tripSource = 'edited';
+  if (!ok) alert('Could not save trips in this browser (storage full?). Export trips.json to keep them.');
+}
+
 function serializeRows(rows) {
   return rows.map((r) => ({ ...r, from: { iata: r.from.iata, icao: r.from.icao, label: r.from.label }, to: { iata: r.to.iata, icao: r.to.icao, label: r.to.label } }));
 }
 
 async function init() {
-  const [airports, tcc, shapes, csvText, visited] = await Promise.all([
+  const [airports, tcc, shapes, csvText, visited, trips] = await Promise.all([
     loadJson('data/airports.json'),
     loadJson('data/tcc.json'),
     loadJson('data/tcc-shapes.json'),
     loadText('data/flights.csv').catch(() => ''),
     loadJson('data/visited.json').catch(() => []),
+    loadJson('data/trips.json').catch(() => []),
   ]);
   state.airports = airports;
   for (const [iata, a] of Object.entries(airports)) if (a[5] && !state.icao.has(a[5])) state.icao.set(a[5], iata);
   state.tcc = tcc;
-  state.shapes = shapes;
+  state.features = topojson.feature(shapes, shapes.objects.tcc).features;
+  state.tccAt = createPolygonIndex(state.features);
   state.bundledCsv = csvText;
-  state.bundledVisited = new Set(visited);
+  state.bundledTrips = trips;
 
   const saved = store.get(LS_FLIGHTS, null);
   if (saved && Array.isArray(saved.rows)) setFlights(saved.rows, saved.source || 'imported');
   else setFlights(csvText ? parseFlightCsv(csvText) : [], 'bundled');
 
-  state.manualVisited = new Set(store.get(LS_VISITED, null) ?? visited);
+  const savedTrips = store.get(LS_TRIPS, null);
+  if (savedTrips && Array.isArray(savedTrips.trips)) setTrips(savedTrips.trips, savedTrips.source || 'edited');
+  else setTrips(trips, 'bundled');
 
-  initMap();
+  const known = new Set(tcc.map((t) => t.id));
+  state.manualVisited = new Set((store.get(LS_VISITED, null) ?? visited).filter((id) => known.has(id)));
+  Object.assign(state.view, store.get(LS_VIEW, {}));
+
+  M = createMap($('#map'), { onHover, onClick, onMove: hideTooltip });
+  await M.ready;
+  initControls();
   initPanel();
+  buildYearFilter();
+  M.setData('allAirports', allAirportsGeoJson());
+  applyView();
   update();
   $('#loading').remove();
 }
 
 // ---------------------------------------------------------- derived data
 
-function filteredFlights() {
-  if (state.year === 'all') return state.flights;
-  return state.flights.filter((f) => f.date.startsWith(state.year));
-}
+const inYear = (date) => state.year === 'all' || (date || '').startsWith(state.year);
+const filteredFlights = () => state.flights.filter((f) => inYear(f.date));
+const filteredTrips = () => state.trips.filter((t) => inYear(t.date));
 
 function routeKey(a, b) {
   return a < b ? `${a}|${b}` : `${b}|${a}`;
@@ -170,140 +196,46 @@ const coord = (code) => {
   return [a[4], a[3]];
 };
 
-function distanceKm(a, b) {
-  return d3.geoDistance(coord(a), coord(b)) * 6371;
-}
+const airportKm = (a, b) => distanceKm(coord(a), coord(b));
 
-/** TCC indices visited by flight (all years) -> list of airports. */
-function flownDestinations() {
+/**
+ * Destinations visited, from all flights (airport locations) and trips
+ * (points along road/rail routes, ports for boat trips).
+ */
+function evidence() {
+  if (evidenceCache) return evidenceCache;
   const m = new Map();
+  const add = (idx, kind, value) => {
+    if (idx < 0) return;
+    if (!m.has(idx)) m.set(idx, { airports: new Set(), trips: new Set() });
+    m.get(idx)[kind].add(value);
+  };
   for (const f of state.flights) {
-    for (const code of [f.from, f.to]) {
-      const idx = state.airports[code][6];
-      if (idx < 0) continue;
-      if (!m.has(idx)) m.set(idx, new Set());
-      m.get(idx).add(code);
-    }
+    for (const code of [f.from, f.to]) add(state.airports[code][6], 'airports', code);
   }
+  for (const t of state.trips) {
+    // Stops and endpoints count even when they sit just off the simplified
+    // coastline; for boats only those count (not the sea in between).
+    const ends = [...t.waypoints.map((w) => [w.lon, w.lat]), t.coords[0], t.coords[t.coords.length - 1]].filter(Boolean);
+    for (const p of ends) add(state.tccAt.near(p), 'trips', t.id);
+    if (t.mode !== 'boat') for (const p of sampleLine(t.coords, 8)) add(state.tccAt(p), 'trips', t.id);
+  }
+  evidenceCache = m;
   return m;
 }
 
-function visitStatus(idx, flown) {
-  if (flown.has(idx)) return 'flown';
+function visitStatus(idx) {
+  if (evidence().has(idx)) return 'auto';
   if (state.manualVisited.has(state.tcc[idx].id)) return 'manual';
   return '';
 }
 
-// ------------------------------------------------------------------- map
+const visitedCount = () => state.tcc.filter((_, i) => visitStatus(i)).length;
+// Count by the official TCC numbering (330), where Russia, Turkey and Egypt count twice.
+const officialCount = () => d3.sum(state.tcc, (t, i) => (visitStatus(i) ? t.n.length : 0));
 
-const map = {};
+// ------------------------------------------------------------- map data
 
-function initMap() {
-  const svg = d3.select('#map');
-  map.svg = svg;
-  map.root = svg.append('g');
-  map.projection = d3.geoNaturalEarth1();
-  map.path = d3.geoPath(map.projection);
-  map.k = 1;
-
-  map.sphere = map.root.append('path').attr('class', 'sphere');
-  map.graticule = map.root.append('path').attr('class', 'graticule');
-  map.land = map.root.append('g').attr('class', 'land');
-  map.markers = map.root.append('g').attr('class', 'markers');
-  map.routes = map.root.append('g').attr('class', 'routes');
-  map.arrows = map.root.append('g').attr('class', 'arrows');
-  map.airportLayer = map.root.append('g').attr('class', 'airports');
-
-  map.features = topojson.feature(state.shapes, state.shapes.objects.tcc).features;
-
-  map.zoom = d3
-    .zoom()
-    .scaleExtent([1, 60])
-    .on('zoom', (ev) => {
-      map.root.attr('transform', ev.transform);
-      map.k = ev.transform.k;
-      rescale();
-    });
-  svg.call(map.zoom).on('dblclick.zoom', null);
-  svg.on('click', (ev) => {
-    if (ev.target === svg.node() || ev.target.classList.contains('sphere') || ev.target.classList.contains('graticule')) {
-      clearSelection();
-    }
-  });
-
-  $('#zoom-in').onclick = () => svg.transition().duration(300).call(map.zoom.scaleBy, 1.8);
-  $('#zoom-out').onclick = () => svg.transition().duration(300).call(map.zoom.scaleBy, 1 / 1.8);
-  $('#zoom-reset').onclick = () => svg.transition().duration(500).call(map.zoom.transform, d3.zoomIdentity);
-
-  new ResizeObserver(() => layout()).observe($('#map-wrap'));
-  layout();
-}
-
-function layout() {
-  const { width, height } = $('#map-wrap').getBoundingClientRect();
-  if (!width || !height) return;
-  map.width = width;
-  map.height = height;
-  // Smaller symbols on small screens.
-  map.ui = Math.max(0.55, Math.min(1, width / 1100));
-  map.svg.attr('viewBox', `0 0 ${width} ${height}`);
-  // Crop the far south a little; Antarctica is mostly empty space.
-  map.projection.fitExtent(
-    [[8, 8], [width - 8, height - 8]],
-    { type: 'MultiPoint', coordinates: [[-180, 84], [180, 84], [-180, 0], [180, 0], [-180, -62], [180, -62], [0, 84], [0, -62]] },
-  );
-  map.zoom.translateExtent([[-width * 0.25, -height * 0.25], [width * 1.25, height * 1.25]]).extent([[0, 0], [width, height]]);
-  map.sphere.attr('d', map.path({ type: 'Sphere' }));
-  map.graticule.attr('d', map.path(d3.geoGraticule10()));
-  map.land.selectAll('path').attr('d', map.path);
-  drawAll();
-}
-
-function drawAll() {
-  if (!map.width) return;
-  drawLand();
-  drawFlights();
-  rescale();
-}
-
-function drawLand() {
-  const flown = flownDestinations();
-  map.land
-    .selectAll('path')
-    .data(map.features, (d) => d.id)
-    .join((enter) => enter.append('path').attr('d', map.path))
-    .attr('class', (d) => {
-      if (d.id < 0) return '';
-      return `dest ${visitStatus(d.id, flown)}${state.selectedDest === d.id ? ' selected' : ''}`;
-    })
-    .on('mousemove', (ev, d) => d.id >= 0 && showDestTooltip(ev, d.id, flown))
-    .on('mouseleave', hideTooltip)
-    .on('click', (ev, d) => {
-      if (d.id < 0) return;
-      ev.stopPropagation();
-      selectDestination(d.id);
-    });
-
-  // Markers for destinations that are too small to see (or have no polygon).
-  const small = state.tcc
-    .map((t, i) => ({ ...t, idx: i }))
-    .filter((t) => t.pt && (!t.shape || t.area < 60));
-  map.markers
-    .selectAll('circle')
-    .data(small, (d) => d.idx)
-    .join('circle')
-    .attr('class', (d) => `dest-marker ${visitStatus(d.idx, flown)}`)
-    .attr('cx', (d) => map.projection(d.pt)[0])
-    .attr('cy', (d) => map.projection(d.pt)[1])
-    .on('mousemove', (ev, d) => showDestTooltip(ev, d.idx, flown))
-    .on('mouseleave', hideTooltip)
-    .on('click', (ev, d) => {
-      ev.stopPropagation();
-      selectDestination(d.idx);
-    });
-}
-
-// Visual encodings for routes.
 function routeScales(routes) {
   const maxTotal = d3.max(routes, (r) => r.total) || 1;
   const maxDir = d3.max(routes, (r) => Math.max(r.ab, r.ba)) || 1;
@@ -313,180 +245,214 @@ function routeScales(routes) {
     width: (r) => 1.2 + 5.3 * Math.sqrt(r.total / maxTotal),
     // Same hue throughout; saturation (and a little brightness) grows with use.
     color: (n) => d3.hsl(32, 0.12 + 0.88 * t(n), 0.62 - 0.08 * t(n)).formatHex(),
-    // Arrow length for the largest direction on a route.
-    arrowBase: (r) => 7 + 11 * Math.sqrt(Math.max(r.ab, r.ba) / maxDir),
+    // Arrow length (px) for the busier direction of a route.
+    arrowBase: (r) => 8 + 12 * Math.sqrt(Math.max(r.ab, r.ba) / maxDir),
   };
 }
 
-function arrowGeometry(r, scales) {
-  const A = coord(r.a);
-  const B = coord(r.b);
-  const interp = d3.geoInterpolate(A, B);
-  const base = scales.arrowBase(r);
-  const maxDir = Math.max(r.ab, r.ba);
-  const out = [];
-  const both = r.ab > 0 && r.ba > 0;
-  const pa = map.projection(A);
-  const pb = map.projection(B);
-  const len = Math.hypot(pa[0] - pb[0], pa[1] - pb[1]);
-  for (const [count, forward] of [[r.ab, true], [r.ba, false]]) {
-    if (!count) continue;
-    // Arrows sit apart on the line so both are visible; each points along its
-    // direction of travel and its size is proportional to its flight count.
-    const t = both ? (forward ? 0.62 : 0.38) : 0.5;
-    const p = map.projection(interp(t));
-    const q = map.projection(interp(forward ? Math.min(t + 0.02, 1) : Math.max(t - 0.02, 0)));
-    if (!p || !q) continue;
-    const dx = q[0] - p[0];
-    const dy = q[1] - p[1];
-    if (Math.hypot(dx, dy) > map.width / 3) continue; // wraps around the antimeridian
-    out.push({
-      key: `${r.key}:${forward ? 'ab' : 'ba'}`,
-      route: r,
-      x: p[0],
-      y: p[1],
-      angle: (Math.atan2(dy, dx) * 180) / Math.PI,
-      size: (base * count) / maxDir,
-      base,
-      len,
-      color: scales.color(r.total),
+function flightGeoJson(routes, scales) {
+  const lines = [];
+  const arrows = [];
+  const ui = Math.max(0.6, Math.min(1, $('#map').clientWidth / 1100));
+  for (const r of routes) {
+    const A = coord(r.a);
+    const B = coord(r.b);
+    const line = greatCircle(A, B);
+    const color = scales.color(r.total);
+    lines.push({
+      type: 'Feature',
+      properties: { key: r.key, a: r.a, b: r.b, color, w: scales.width(r) },
+      geometry: { type: 'LineString', coordinates: line },
     });
+    const [ax, ay] = mercatorPx(line[0]);
+    const [bx, by] = mercatorPx(line[line.length - 1]);
+    const len = Math.hypot(bx - ax, by - ay);
+    const base = scales.arrowBase(r);
+    const maxDir = Math.max(r.ab, r.ba);
+    const both = r.ab > 0 && r.ba > 0;
+    for (const [count, forward] of [[r.ab, true], [r.ba, false]]) {
+      if (!count) continue;
+      // Arrows sit apart so both are visible; each points in its direction of
+      // travel and its size is proportional to its number of flights.
+      const t = both ? (forward ? 0.62 : 0.38) : 0.5;
+      // Sample from the (unwrapped) line so the arrow sits on the same world copy.
+      const i = Math.round(t * (line.length - 1));
+      const j = forward ? Math.min(i + 1, line.length - 1) : Math.max(i - 1, 0);
+      const p = line[i];
+      const [px, py] = mercatorPx(p);
+      const [qx, qy] = mercatorPx(line[j]);
+      arrows.push({
+        type: 'Feature',
+        properties: {
+          key: r.key,
+          a: r.a,
+          b: r.b,
+          color,
+          rot: (Math.atan2(qx - px, -(qy - py)) * 180) / Math.PI,
+          s: ((base * count) / maxDir / 32) * ui,
+          base,
+          len,
+        },
+        geometry: { type: 'Point', coordinates: p },
+      });
+    }
   }
-  return out;
+  return { lines: { type: 'FeatureCollection', features: lines }, arrows: { type: 'FeatureCollection', features: arrows } };
 }
 
-function drawFlights() {
-  const { routes, airports } = aggregate(filteredFlights());
-  map.agg = { routes, airports };
-  const scales = routeScales(routes);
-  map.scales = scales;
-  routes.sort((x, y) => x.total - y.total);
-
-  const lineOf = (r) => map.path({ type: 'LineString', coordinates: [coord(r.a), coord(r.b)] });
-
-  map.routes
-    .selectAll('g.route-g')
-    .data(routes, (r) => r.key)
-    .join((enter) => {
-      const g = enter.append('g').attr('class', 'route-g');
-      g.append('path').attr('class', 'route');
-      g.append('path').attr('class', 'route-hit');
-      return g;
-    })
-    .order()
-    .each(function (r) {
-      const d = lineOf(r);
-      const g = d3.select(this);
-      g.select('.route').attr('d', d).attr('stroke', scales.color(r.total)).attr('stroke-width', scales.width(r));
-      g.select('.route-hit').attr('d', d);
-    })
-    .on('mousemove', (ev, r) => showRouteTooltip(ev, r))
-    .on('mouseleave', hideTooltip)
-    .on('click', (ev, r) => {
-      ev.stopPropagation();
-      selectRoute(r.key);
-    });
-
-  const arrows = routes.flatMap((r) => arrowGeometry(r, scales));
-  map.arrows
-    .selectAll('path')
-    .data(arrows, (a) => a.key)
-    .join('path')
-    .attr('class', 'arrow')
-    .attr('d', 'M1,0 L-0.7,0.6 L-0.35,0 L-0.7,-0.6 Z')
-    .attr('fill', (a) => a.color);
-
+function airportsGeoJson(airports) {
   const maxCount = d3.max(airports, (a) => a.count) || 1;
-  airports.sort((a, b) => a.count - b.count);
-  map.airportLayer
-    .selectAll('g.airport')
-    .data(airports, (a) => a.code)
-    .join((enter) => {
-      const g = enter.append('g').attr('class', 'airport');
-      g.append('circle');
-      g.append('text').attr('dy', '-0.7em').attr('text-anchor', 'middle');
-      return g;
-    })
-    .order()
-    .each(function (a) {
-      const [x, y] = map.projection(coord(a.code));
-      a.r = 2.5 + 3.5 * Math.sqrt(a.count / maxCount);
-      a.x = x;
-      a.y = y;
-      d3.select(this).select('text').text(a.code);
-    })
-    .on('mousemove', (ev, a) => showAirportTooltip(ev, a))
-    .on('mouseleave', hideTooltip)
-    .on('click', (ev, a) => {
-      ev.stopPropagation();
-      selectAirport(a.code);
-    });
+  return {
+    type: 'FeatureCollection',
+    features: airports
+      .slice()
+      .sort((a, b) => a.count - b.count)
+      .map((a) => ({
+        type: 'Feature',
+        properties: { code: a.code, count: a.count, r: 3 + 4 * Math.sqrt(a.count / maxCount) },
+        geometry: { type: 'Point', coordinates: coord(a.code) },
+      })),
+  };
+}
 
+function allAirportsGeoJson() {
+  return {
+    type: 'FeatureCollection',
+    features: Object.entries(state.airports).map(([code, a]) => ({
+      type: 'Feature',
+      properties: { code },
+      geometry: { type: 'Point', coordinates: [a[4], a[3]] },
+    })),
+  };
+}
+
+function tripsGeoJson(trips) {
+  return {
+    type: 'FeatureCollection',
+    features: trips.map((t) => ({
+      type: 'Feature',
+      properties: { id: t.id, mode: t.mode, color: (MODES[t.mode] || MODES.other).color },
+      geometry: { type: 'LineString', coordinates: t.coords },
+    })),
+  };
+}
+
+function heatGeoJson(trips, airports) {
+  const features = [];
+  for (const t of trips) {
+    const step = Math.max(2, lineLengthKm(t.coords) / 4000);
+    for (const p of sampleLine(t.coords, step)) features.push({ type: 'Feature', properties: { w: 1 }, geometry: { type: 'Point', coordinates: p } });
+  }
+  for (const a of airports) {
+    features.push({ type: 'Feature', properties: { w: Math.min(12, 2 + a.count) }, geometry: { type: 'Point', coordinates: coord(a.code) } });
+  }
+  return { type: 'FeatureCollection', features };
+}
+
+function landGeoJson() {
+  return {
+    type: 'FeatureCollection',
+    features: state.features.map((f) => ({ ...f, properties: { idx: f.id, status: f.id >= 0 ? visitStatus(f.id) : '' } })),
+  };
+}
+
+function markersGeoJson() {
+  return {
+    type: 'FeatureCollection',
+    features: state.tcc
+      .map((t, idx) => ({ t, idx }))
+      .filter(({ t }) => t.pt && (!t.shape || t.area < 60))
+      .map(({ t, idx }) => ({ type: 'Feature', properties: { idx, status: visitStatus(idx) }, geometry: { type: 'Point', coordinates: t.pt } })),
+  };
+}
+
+function draftGeoJson() {
+  const d = state.draft;
+  if (!d) return { type: 'FeatureCollection', features: [] };
+  const pts = d.waypoints.map((w) => [w.lon, w.lat]);
+  const features = pts.map((c, i) => ({ type: 'Feature', properties: { i }, geometry: { type: 'Point', coordinates: c } }));
+  if (pts.length > 1) features.push({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: pts } });
+  return { type: 'FeatureCollection', features };
+}
+
+function drawCountries() {
+  M.setData('land', landGeoJson());
+  M.setData('markers', markersGeoJson());
+}
+
+function drawMovements() {
+  const flights = filteredFlights();
+  const trips = filteredTrips();
+  const agg = aggregate(flights);
+  state.agg = agg;
+  const scales = routeScales(agg.routes);
+  agg.routes.sort((x, y) => x.total - y.total);
+  const { lines, arrows } = flightGeoJson(agg.routes, scales);
+  M.setData('routes', lines);
+  M.setData('arrows', arrows);
+  M.setData('airports', airportsGeoJson(agg.airports));
+  M.setAirportLabels(agg.airports.map((a) => ({ code: a.code, count: a.count, lngLat: coord(a.code) })));
+  M.setData('trips', tripsGeoJson(trips));
+  M.setData('heat', heatGeoJson(trips, agg.airports));
   applyHighlight();
   drawLegend(scales);
 }
 
-/** Keeps arrows, airports and labels a constant on-screen size while zooming. */
-function rescale() {
-  const k = map.k;
-  // On short routes the arrows would swallow the line, so both arrows of a
-  // route shrink by the same factor (keeping their size ratio) until zoomed in.
-  map.arrows.selectAll('path').attr('transform', (a) => {
-    const fit = Math.min(1, (a.len * k * 0.18) / a.base);
-    return `translate(${a.x},${a.y}) rotate(${a.angle}) scale(${(a.size * fit * map.ui) / k})`;
+function applyHighlight() {
+  const { airport, route, trip, dest } = state.sel;
+  const connected = new Set();
+  if (state.agg && (airport || route)) {
+    for (const r of state.agg.routes) {
+      if (route ? r.key === route : r.a === airport || r.b === airport) connected.add(r.a).add(r.b);
+    }
+  }
+  M.setHighlight({ airport, route, trip, dest, connected: [...connected] });
+  M.setLabelFilter((code, count, z) => {
+    if (airport || route) return connected.has(code);
+    if (trip) return false;
+    return z >= 4 || count >= 6;
   });
-  map.airportLayer.selectAll('g.airport').attr('transform', (a) => `translate(${a.x},${a.y})`);
-  map.airportLayer.selectAll('circle').attr('r', (a) => (a.r * map.ui) / k);
-  // Labels: show the busiest airports first, everything once zoomed in.
-  const showAll = k > 3;
-  map.airportLayer
-    .selectAll('text')
-    .attr('font-size', 11 / k)
-    .style('stroke-width', `${3 / k}px`)
-    .attr('display', (a) => (showAll || a.count >= 6 || a.code === state.selectedAirport ? null : 'none'));
-  map.markers.selectAll('circle').attr('r', 3.2 / k).style('stroke-width', `${1 / k}px`);
 }
 
-function applyHighlight() {
-  const selA = state.selectedAirport;
-  const selR = state.selectedRoute;
-  const active = (r) => (selR ? r.key === selR : selA ? r.a === selA || r.b === selA : true);
-  map.routes.selectAll('g.route-g').classed('dim', (r) => !active(r));
-  map.arrows.selectAll('path').classed('dim', (a) => !active(a.route));
-  let connected = null;
-  if (selA || selR) {
-    connected = new Set();
-    for (const r of map.agg.routes) if (active(r)) connected.add(r.a).add(r.b);
-  }
-  map.airportLayer
-    .selectAll('g.airport')
-    .classed('dim', (a) => connected && !connected.has(a.code))
-    .classed('selected', (a) => a.code === selA);
-  if (selA) map.airportLayer.selectAll('g.airport').filter((a) => a.code === selA).raise();
+function applyView() {
+  const v = state.view;
+  M.setVisible(['routes', 'routes-hit', 'arrows', 'airports'], v.flights);
+  document.body.classList.toggle('hide-labels', !v.flights);
+  M.setVisible(['trips', 'trips-boat', 'trips-hit'], v.trips);
+  M.setVisible('heat', v.heat);
+  M.setVisible('all-airports', v.allAirports);
+  M.setVisible('rail', v.rail);
+  M.setBasemap(v.basemap);
+  M.setProjection(v.globe ? 'globe' : 'mercator');
+  store.set(LS_VIEW, v);
 }
 
 function drawLegend(scales) {
   const stops = d3.range(0, 1.01, 0.1).map((t) => scales.color(Math.max(1, Math.round(Math.exp(t * Math.log(scales.maxTotal))))));
+  const modes = new Set(state.trips.map((t) => t.mode));
   $('#legend').innerHTML = `
     <div>Flights per route</div>
     <div class="grad" style="background:linear-gradient(90deg, ${stops.join(',')})"></div>
     <div class="scale"><span>1</span><span>${scales.maxTotal}</span></div>
-    <div><span class="sw" style="background:var(--flown)"></span>Visited by flight</div>
+    ${Object.entries(MODES)
+      .filter(([k]) => modes.has(k))
+      .map(([k, m]) => `<div><span class="ln ${k === 'boat' ? 'dashed' : ''}" style="--c:${m.color}"></span>${m.label}</div>`)
+      .join('')}
+    <div><span class="sw" style="background:var(--auto)"></span>Visited (flights / trips)</div>
     <div><span class="sw" style="background:var(--manual)"></span>Visited (added manually)</div>`;
 }
 
 // --------------------------------------------------------------- tooltip
 
-function moveTooltip(ev, html) {
+function showTooltip(ev, html) {
   const tip = $('#tooltip');
   tip.innerHTML = html;
   tip.hidden = false;
   const box = $('#map-wrap').getBoundingClientRect();
-  const x = ev.clientX - box.left;
-  const y = ev.clientY - box.top;
+  const { x, y } = ev.point;
   const w = tip.offsetWidth;
   const h = tip.offsetHeight;
-  tip.style.left = `${Math.min(x + 14, box.width - w - 8)}px`;
+  tip.style.left = `${Math.max(4, Math.min(x + 14, box.width - w - 8))}px`;
   tip.style.top = `${y + 14 + h > box.height ? y - h - 10 : y + 14}px`;
 }
 
@@ -499,85 +465,117 @@ function airportName(code) {
   return a ? `${a[1] || a[0]}` : code;
 }
 
-function showRouteTooltip(ev, r) {
-  const km = Math.round(distanceKm(r.a, r.b));
-  moveTooltip(
-    ev,
-    `<div class="t-title">${r.a} ⇄ ${r.b}</div>
-     <div>${r.a} → ${r.b}: <b>${r.ab}</b></div>
-     <div>${r.b} → ${r.a}: <b>${r.ba}</b></div>
-     <div class="t-sub">${esc(airportName(r.a))} – ${esc(airportName(r.b))} · ${fmt(km)} km</div>`,
-  );
+function findRoute(key) {
+  return state.agg.routes.find((r) => r.key === key);
 }
 
-function showAirportTooltip(ev, a) {
-  const ap = state.airports[a.code];
-  moveTooltip(
-    ev,
-    `<div class="t-title">${a.code} · ${esc(ap[1] || '')}</div>
-     <div class="t-sub">${esc(ap[0])}</div>
-     <div>${a.count} flights · ${a.routes.size} routes</div>`,
-  );
+const regionsOf = (t) => [t.region, ...(t.also || [])];
+
+function onHover(hit, ev) {
+  if (!hit) return hideTooltip();
+  const p = hit.props;
+  if (hit.kind === 'airport' || hit.kind === 'any-airport') {
+    const ap = state.airports[p.code];
+    const agg = state.agg.airports.find((a) => a.code === p.code);
+    showTooltip(
+      ev,
+      `<div class="t-title">${p.code} · ${esc(ap[1] || '')}</div>
+       <div class="t-sub">${esc(ap[0])}</div>
+       ${agg ? `<div>${agg.count} flights · ${agg.routes.size} routes</div>` : ''}`,
+    );
+  } else if (hit.kind === 'route') {
+    const r = findRoute(p.key);
+    if (!r) return hideTooltip();
+    showTooltip(
+      ev,
+      `<div class="t-title">${r.a} ⇄ ${r.b}</div>
+       <div>${r.a} → ${r.b}: <b>${r.ab}</b></div>
+       <div>${r.b} → ${r.a}: <b>${r.ba}</b></div>
+       <div class="t-sub">${esc(airportName(r.a))} – ${esc(airportName(r.b))} · ${fmt(Math.round(airportKm(r.a, r.b)))} km</div>`,
+    );
+  } else if (hit.kind === 'trip') {
+    const t = state.trips.find((x) => x.id === p.id);
+    if (!t) return hideTooltip();
+    showTooltip(ev, `<div class="t-title">${MODES[t.mode]?.icon || ''} ${esc(t.name || 'Trip')}</div><div class="t-sub">${esc(t.date)} · ${fmt(Math.round(lineLengthKm(t.coords)))} km</div>`);
+  } else if (hit.kind === 'dest') {
+    const t = state.tcc[p.idx];
+    const st = visitStatus(p.idx);
+    showTooltip(ev, `<div class="t-title">${esc(t.name)}</div><div class="t-sub">${esc(regionsOf(t).join(' · '))}</div><div>${st ? 'Visited' : 'Not visited'}</div>`);
+  } else if (hit.kind === 'draft') {
+    const w = state.draft?.waypoints[p.i];
+    if (w) showTooltip(ev, `<div class="t-title">${p.i + 1}. ${esc(w.name)}</div>`);
+    else hideTooltip();
+  }
 }
 
-function showDestTooltip(ev, idx, flown) {
-  const t = state.tcc[idx];
-  const st = visitStatus(idx, flown);
-  const via = flown.get(idx);
-  moveTooltip(
-    ev,
-    `<div class="t-title">${esc(t.name)}</div>
-     <div class="t-sub">${esc(t.region)}</div>
-     <div>${st === 'flown' ? `Visited · flew to ${[...via].join(', ')}` : st === 'manual' ? 'Visited' : 'Not visited'}</div>`,
-  );
+function onClick(hit, ev) {
+  hideTooltip();
+  const d = state.draft;
+  if (d?.clickToAdd && (!hit || hit.kind === 'dest' || hit.kind === 'any-airport' || hit.kind === 'airport')) {
+    if (hit && (hit.kind === 'any-airport' || hit.kind === 'airport')) {
+      const code = hit.props.code;
+      addWaypoint({ name: `${code} · ${airportName(code)}`, lon: coord(code)[0], lat: coord(code)[1] });
+    } else {
+      const { lng, lat } = ev.lngLat.wrap();
+      const idx = state.tccAt([lng, lat]);
+      addWaypoint({ name: `${idx >= 0 ? `${state.tcc[idx].name} ` : ''}(${lat.toFixed(3)}, ${lng.toFixed(3)})`, lon: +lng.toFixed(5), lat: +lat.toFixed(5) });
+    }
+    return;
+  }
+  if (!hit) return clearSelection();
+  if (hit.kind === 'airport') selectAirport(hit.props.code);
+  else if (hit.kind === 'any-airport') select({ anyAirport: hit.props.code });
+  else if (hit.kind === 'route') select({ route: hit.props.key });
+  else if (hit.kind === 'trip') select({ trip: hit.props.id });
+  else if (hit.kind === 'dest') select({ dest: hit.props.idx });
 }
 
 // ------------------------------------------------------------- selection
 
-function clearSelection() {
-  state.selectedAirport = null;
-  state.selectedRoute = null;
-  state.selectedDest = null;
-  map.land.selectAll('path').classed('selected', false);
+function select(sel) {
+  state.sel = { airport: null, route: null, trip: null, dest: null, anyAirport: null, ...sel };
   applyHighlight();
+  if (!state.draft) showTab('overview');
   renderOverview();
+}
+
+function clearSelection() {
+  select({});
 }
 
 function selectAirport(code) {
-  state.selectedAirport = state.selectedAirport === code ? null : code;
-  state.selectedRoute = null;
-  state.selectedDest = null;
-  applyHighlight();
-  rescale();
-  showTab('overview');
-  renderOverview();
-}
-
-function selectRoute(key) {
-  state.selectedRoute = state.selectedRoute === key ? null : key;
-  applyHighlight();
-  showTab('overview');
-  renderOverview();
-}
-
-function selectDestination(idx) {
-  state.selectedDest = idx;
-  state.selectedAirport = null;
-  state.selectedRoute = null;
-  map.land.selectAll('path').classed('selected', (d) => d.id === idx);
-  applyHighlight();
-  showTab('overview');
-  renderOverview();
+  select({ airport: state.sel.airport === code ? null : code });
 }
 
 // ----------------------------------------------------------------- panel
+
+function initControls() {
+  const v = state.view;
+  $('#layers').innerHTML = `
+    <label><input type="checkbox" data-view="flights" ${v.flights ? 'checked' : ''}/> Flights</label>
+    <label><input type="checkbox" data-view="trips" ${v.trips ? 'checked' : ''}/> Road / rail / sea trips</label>
+    <label><input type="checkbox" data-view="heat" ${v.heat ? 'checked' : ''}/> Heatmap</label>
+    <label><input type="checkbox" data-view="allAirports" ${v.allAirports ? 'checked' : ''}/> All airports</label>
+    <label><input type="checkbox" data-view="rail" ${v.rail ? 'checked' : ''}/> Railway lines</label>
+    <label><input type="checkbox" data-view="globe" ${v.globe ? 'checked' : ''}/> Globe</label>
+    <label class="basemap">Map <select data-view="basemap">${Object.entries(BASEMAPS)
+      .map(([k, b]) => `<option value="${k}" ${k === v.basemap ? 'selected' : ''}>${b.label}</option>`)
+      .join('')}</select></label>`;
+  $('#layers').addEventListener('change', (ev) => {
+    const key = ev.target.dataset.view;
+    if (!key) return;
+    state.view[key] = ev.target.type === 'checkbox' ? ev.target.checked : ev.target.value;
+    applyView();
+  });
+  $('#layers-toggle').onclick = () => $('#layers').classList.toggle('open');
+}
 
 function initPanel() {
   for (const btn of document.querySelectorAll('.tabs button')) btn.onclick = () => showTab(btn.dataset.tab);
 
   $('#year-filter').onchange = (ev) => {
     state.year = ev.target.value;
-    state.selectedRoute = null;
+    state.sel.route = state.sel.trip = null;
     update();
   };
 
@@ -593,30 +591,47 @@ function initPanel() {
   }
   $('#country-list').addEventListener('change', (ev) => {
     const id = ev.target.dataset.id;
-    if (!id) return;
-    toggleManual(id, ev.target.checked);
+    if (id) toggleManual(id, ev.target.checked);
   });
   $('#country-list').addEventListener('click', (ev) => {
     const el = ev.target.closest('[data-focus]');
     if (el) focusDestination(+el.dataset.focus);
   });
 
-  $('#tab-overview').addEventListener('click', (ev) => {
+  // Delegated actions anywhere in the panel.
+  $('#panel').addEventListener('click', (ev) => {
     const el = ev.target.closest('[data-action]');
     if (!el) return;
+    ev.preventDefault();
     const { action, value } = el.dataset;
     if (action === 'airport') {
       selectAirport(value);
-      focusAirport(value);
-    } else if (action === 'route') selectRoute(value);
+      M.flyTo(coord(value), 4);
+    } else if (action === 'route') select({ route: value });
     else if (action === 'close') clearSelection();
     else if (action === 'toggle-dest') {
       const t = state.tcc[+value];
       toggleManual(t.id, !state.manualVisited.has(t.id));
-    } else if (action === 'dest') focusDestination(+value);
+    } else if (action === 'trip') {
+      select({ trip: value });
+      const t = state.trips.find((x) => x.id === value);
+      if (t) M.fitCoords(t.coords);
+    } else if (action === 'delete-trip') deleteTrip(value);
+    else if (action === 'edit-trip') editTrip(value);
+    else if (action === 'new-trip') startDraft();
+    else if (action === 'cancel-draft') cancelDraft();
+    else if (action === 'save-draft') saveDraft();
+    else if (action === 'wp-remove') removeWaypoint(+value);
+    else if (action === 'wp-up') moveWaypoint(+value, -1);
+    else if (action === 'wp-down') moveWaypoint(+value, 1);
+    else if (action === 'add-result') addWaypoint(state.searchResults[+value]);
   });
 
-  // Data tab
+  initDataTab();
+  initTripsTab();
+}
+
+function initDataTab() {
   const dz = $('#drop-zone');
   dz.addEventListener('dragover', (ev) => {
     ev.preventDefault();
@@ -633,6 +648,7 @@ function initPanel() {
   $('#reset-flights').onclick = () => {
     store.set(LS_FLIGHTS, null);
     setFlights(state.bundledCsv ? parseFlightCsv(state.bundledCsv) : [], 'bundled');
+    buildYearFilter();
     update();
   };
   $('#add-flight').onsubmit = (ev) => {
@@ -649,16 +665,10 @@ function initPanel() {
     store.set(LS_FLIGHTS, { source: 'edited', rows: serializeRows(rows) });
     setFlights(rows, 'edited');
     ev.target.reset();
+    buildYearFilter();
     update();
   };
-  $('#export-visited').onclick = () => {
-    const blob = new Blob([JSON.stringify([...state.manualVisited].sort(), null, 2) + '\n'], { type: 'application/json' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'visited.json';
-    a.click();
-    URL.revokeObjectURL(a.href);
-  };
+  $('#export-visited').onclick = () => download('visited.json', JSON.stringify([...state.manualVisited].sort(), null, 2) + '\n');
   $('#visited-input').onchange = async (ev) => {
     const file = ev.target.files[0];
     if (!file) return;
@@ -675,8 +685,16 @@ function initPanel() {
   };
 }
 
+function download(name, text) {
+  const blob = new Blob([text], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
 function currentRows() {
-  // Rebuild row objects (with raw airport refs) from resolved + unresolved flights.
   const toRef = (code) => ({ iata: code, icao: state.airports[code][5], label: '' });
   return [...state.flights.map((f) => ({ ...f, from: toRef(f.from), to: toRef(f.to) })), ...state.unresolved];
 }
@@ -687,6 +705,7 @@ async function importCsvFile(file) {
     if (!rows.length) throw new Error('No flights found in file.');
     store.set(LS_FLIGHTS, { source: `imported (${file.name})`, rows: serializeRows(rows) });
     setFlights(rows, `imported (${file.name})`);
+    buildYearFilter();
     update();
   } catch (err) {
     $('#import-warnings').innerHTML = `<p class="warn">${esc(err.message)}</p>`;
@@ -697,8 +716,7 @@ function toggleManual(id, on) {
   if (on) state.manualVisited.add(id);
   else state.manualVisited.delete(id);
   store.set(LS_VISITED, [...state.manualVisited]);
-  drawLand();
-  rescale();
+  drawCountries();
   renderStats();
   renderCountries();
   renderOverview();
@@ -709,44 +727,21 @@ function showTab(name) {
   for (const tab of document.querySelectorAll('.tab')) tab.hidden = tab.id !== `tab-${name}`;
 }
 
-function focusAirport(code) {
-  const [x, y] = map.projection(coord(code));
-  const k = Math.max(map.k, 4);
-  map.svg
-    .transition()
-    .duration(600)
-    .call(map.zoom.transform, d3.zoomIdentity.translate(map.width / 2 - x * k, map.height / 2 - y * k).scale(k));
-}
-
 function focusDestination(idx) {
-  const f = map.features.find((d) => d.id === idx);
-  let x;
-  let y;
-  let k;
+  const f = state.features.find((d) => d.id === idx);
+  const t = state.tcc[idx];
   if (f) {
-    const [[x0, y0], [x1, y1]] = map.path.bounds(f);
-    k = Math.min(40, 0.7 / Math.max((x1 - x0) / map.width, (y1 - y0) / map.height));
-    // Multi-part shapes spanning the globe (e.g. France with overseas parts) fall back to the marker.
-    if (k < 1.5 && state.tcc[idx].pt) {
-      [x, y] = map.projection(state.tcc[idx].pt);
-      k = 4;
-    } else {
-      x = (x0 + x1) / 2;
-      y = (y0 + y1) / 2;
-    }
-  } else if (state.tcc[idx].pt) {
-    [x, y] = map.projection(state.tcc[idx].pt);
-    k = 10;
-  } else return;
-  map.svg
-    .transition()
-    .duration(700)
-    .call(map.zoom.transform, d3.zoomIdentity.translate(map.width / 2 - x * k, map.height / 2 - y * k).scale(k));
-  selectDestination(idx);
+    const [[w, s], [e, n]] = d3.geoBounds(f);
+    const spansGlobe = e < w || e - w > 120;
+    if (spansGlobe && t.pt) M.flyTo(t.pt, 4);
+    else M.fitCoords([[w, s], [e, n]], 8);
+  } else if (t.pt) M.flyTo(t.pt, 6);
+  select({ dest: idx });
 }
 
 function buildYearFilter() {
-  const years = [...new Set(state.flights.map((f) => f.date.slice(0, 4)).filter(Boolean))].sort().reverse();
+  const dates = [...state.flights.map((f) => f.date), ...state.trips.map((t) => t.date)];
+  const years = [...new Set(dates.map((d) => (d || '').slice(0, 4)).filter(Boolean))].sort().reverse();
   const sel = $('#year-filter');
   sel.innerHTML = `<option value="all">All years</option>${years.map((y) => `<option value="${y}">${y}</option>`).join('')}`;
   if (state.year !== 'all' && !years.includes(state.year)) state.year = 'all';
@@ -754,26 +749,27 @@ function buildYearFilter() {
 }
 
 function update() {
-  drawAll();
+  drawCountries();
+  drawMovements();
   renderStats();
   renderOverview();
   renderCountries();
+  renderTrips();
   renderData();
 }
 
 function renderStats() {
   const flights = filteredFlights();
-  const { routes, airports } = map.agg || aggregate(flights);
-  const km = d3.sum(flights, (f) => distanceKm(f.from, f.to));
-  const flown = flownDestinations();
-  const visited = state.tcc.filter((t, i) => visitStatus(i, flown)).length;
+  const trips = filteredTrips();
+  const flightKm = d3.sum(flights, (f) => airportKm(f.from, f.to));
+  const tripKm = d3.sum(trips, (t) => lineLengthKm(t.coords));
   const items = [
     [fmt(flights.length), 'Flights'],
-    [fmt(Math.round(km)), 'Kilometres'],
-    [(km / 40075).toFixed(1) + '×', 'Around earth'],
-    [fmt(airports.length), 'Airports'],
-    [fmt(routes.length), 'Routes'],
-    [`${visited}<small class="muted">/${state.tcc.length}</small>`, 'TCC visited'],
+    [fmt(Math.round(flightKm)), 'Flight km'],
+    [fmt(state.agg.airports.length), 'Airports'],
+    [fmt(trips.length), 'Trips'],
+    [fmt(Math.round(tripKm)), 'Road/rail/sea km'],
+    [`${visitedCount()}<small class="muted">/${state.tcc.length}</small>`, 'TCC visited'],
   ];
   $('#stats').innerHTML = items.map(([v, l]) => `<div class="stat"><b>${v}</b><span>${l}</span></div>`).join('');
 }
@@ -792,101 +788,115 @@ function flightRows(flights) {
     .join('');
 }
 
+function card(title, sub, body) {
+  return `<div class="card">
+    <div class="card-head">
+      <div><h3>${title}</h3>${sub ? `<div class="muted small">${sub}</div>` : ''}</div>
+      <button type="button" class="close" data-action="close" aria-label="Close">✕</button>
+    </div>${body}</div>`;
+}
+
 function renderOverview() {
   const el = $('#tab-overview');
-  if (state.selectedRoute || state.selectedAirport || state.selectedDest != null) $('#panel').scrollTop = 0;
-  const { routes } = map.agg;
+  const { routes } = state.agg;
+  const { airport, route, trip, dest, anyAirport } = state.sel;
+  if (airport || route || trip || dest != null || anyAirport) $('#panel').scrollTop = 0;
 
-  if (state.selectedRoute) {
-    const r = routes.find((x) => x.key === state.selectedRoute);
+  if (route) {
+    const r = findRoute(route);
     if (r) {
-      el.innerHTML = `
-        <div class="card">
-          <div class="card-head">
-            <div><h3>${r.a} ⇄ ${r.b}</h3><div class="muted small">${esc(airportName(r.a))} – ${esc(airportName(r.b))} · ${fmt(Math.round(distanceKm(r.a, r.b)))} km</div></div>
-            <button type="button" class="close" data-action="close" aria-label="Close">✕</button>
-          </div>
-          <div class="list">
-            <div class="list-item" data-action="airport" data-value="${r.a}"><span>${r.a} → ${r.b}</span><span class="pill">${r.ab}</span></div>
-            <div class="list-item" data-action="airport" data-value="${r.b}"><span>${r.b} → ${r.a}</span><span class="pill">${r.ba}</span></div>
-          </div>
-          <h2>Flights</h2>
-          ${flightRows(r.flights)}
-        </div>`;
+      el.innerHTML = card(
+        `${r.a} ⇄ ${r.b}`,
+        `${esc(airportName(r.a))} – ${esc(airportName(r.b))} · ${fmt(Math.round(airportKm(r.a, r.b)))} km`,
+        `<div class="list">
+          <div class="list-item" data-action="airport" data-value="${r.a}"><span>${r.a} → ${r.b}</span><span class="pill">${r.ab}</span></div>
+          <div class="list-item" data-action="airport" data-value="${r.b}"><span>${r.b} → ${r.a}</span><span class="pill">${r.ba}</span></div>
+        </div>
+        <h2>Flights</h2>${flightRows(r.flights)}`,
+      );
       return;
     }
   }
 
-  if (state.selectedAirport) {
-    const code = state.selectedAirport;
-    const ap = state.airports[code];
+  if (airport) {
+    const ap = state.airports[airport];
     const mine = routes
-      .filter((r) => r.a === code || r.b === code)
+      .filter((r) => r.a === airport || r.b === airport)
       .map((r) => {
-        const other = r.a === code ? r.b : r.a;
-        const out = r.a === code ? r.ab : r.ba;
-        const inn = r.a === code ? r.ba : r.ab;
-        return { r, other, out, inn };
+        const other = r.a === airport ? r.b : r.a;
+        return { r, other, out: r.a === airport ? r.ab : r.ba, inn: r.a === airport ? r.ba : r.ab };
       })
       .sort((x, y) => y.r.total - x.r.total);
-    const flights = filteredFlights().filter((f) => f.from === code || f.to === code);
-    const dest = state.tcc[ap[6]];
-    el.innerHTML = `
-      <div class="card">
-        <div class="card-head">
-          <div>
-            <h3>${code} · ${esc(ap[1] || ap[0])}</h3>
-            <div class="muted small">${esc(ap[0])}${ap[5] ? ` · ${ap[5]}` : ''}${dest ? ` · ${esc(dest.name)}` : ''}</div>
-          </div>
-          <button type="button" class="close" data-action="close" aria-label="Close">✕</button>
-        </div>
-        <div class="muted small">${flights.length} flights · ${mine.length} routes · <span title="departures">↗ ${d3.sum(mine, (m) => m.out)}</span> · <span title="arrivals">↘ ${d3.sum(mine, (m) => m.inn)}</span></div>
-        <h2>Routes</h2>
-        <div class="list">
-          ${mine
-            .map(
-              (m) => `<div class="list-item" data-action="route" data-value="${m.r.key}">
-                <div><div>${m.other} <span class="muted small">${esc(airportName(m.other))}</span></div>
-                <div class="sub">${fmt(Math.round(distanceKm(code, m.other)))} km</div></div>
-                <span class="dir"><span class="pill" title="${code} → ${m.other}">→ ${m.out}</span><span class="pill" title="${m.other} → ${code}">← ${m.inn}</span></span>
-              </div>`,
-            )
-            .join('')}
-        </div>
-        <h2>Flights</h2>
-        ${flightRows(flights)}
-      </div>`;
+    const flights = filteredFlights().filter((f) => f.from === airport || f.to === airport);
+    const t = state.tcc[ap[6]];
+    el.innerHTML = card(
+      `${airport} · ${esc(ap[1] || ap[0])}`,
+      `${esc(ap[0])}${ap[5] ? ` · ${ap[5]}` : ''}${t ? ` · ${esc(t.name)}` : ''}`,
+      `<div class="muted small">${flights.length} flights · ${mine.length} routes · <span title="departures">↗ ${d3.sum(mine, (m) => m.out)}</span> · <span title="arrivals">↘ ${d3.sum(mine, (m) => m.inn)}</span></div>
+      <h2>Routes</h2>
+      <div class="list">
+        ${mine
+          .map(
+            (m) => `<div class="list-item" data-action="route" data-value="${m.r.key}">
+              <div><div>${m.other} <span class="muted small">${esc(airportName(m.other))}</span></div>
+              <div class="sub">${fmt(Math.round(airportKm(airport, m.other)))} km</div></div>
+              <span class="dir"><span class="pill" title="${airport} → ${m.other}">→ ${m.out}</span><span class="pill" title="${m.other} → ${airport}">← ${m.inn}</span></span>
+            </div>`,
+          )
+          .join('')}
+      </div>
+      <h2>Flights</h2>${flightRows(flights)}`,
+    );
     return;
   }
 
-  if (state.selectedDest != null) {
-    const idx = state.selectedDest;
-    const t = state.tcc[idx];
-    const flown = flownDestinations();
-    const st = visitStatus(idx, flown);
-    const via = [...(flown.get(idx) || [])];
-    el.innerHTML = `
-      <div class="card">
-        <div class="card-head">
-          <div><h3>${esc(t.name)}</h3><div class="muted small">${esc(t.region)}</div></div>
-          <button type="button" class="close" data-action="close" aria-label="Close">✕</button>
-        </div>
-        ${
-          st === 'flown'
-            ? `<p>Visited by flight via ${via.map((c) => `<a href="#" class="link-btn" data-action="airport" data-value="${c}">${c}</a>`).join(', ')}.</p>`
-            : `<p>${st === 'manual' ? 'Marked as visited.' : 'Not visited yet.'}</p>
-               <button type="button" data-action="toggle-dest" data-value="${idx}">${st === 'manual' ? 'Unmark as visited' : 'Mark as visited'}</button>`
-        }
-      </div>`;
+  if (anyAirport) {
+    const ap = state.airports[anyAirport];
+    const t = state.tcc[ap[6]];
+    el.innerHTML = card(`${anyAirport} · ${esc(ap[1] || ap[0])}`, `${esc(ap[0])}${ap[5] ? ` · ${ap[5]}` : ''}${t ? ` · ${esc(t.name)}` : ''}`, '<p class="muted">No flights recorded here.</p>');
+    return;
+  }
+
+  if (trip) {
+    const t = state.trips.find((x) => x.id === trip);
+    if (t) {
+      const dests = [...evidence()].filter(([, e]) => e.trips.has(t.id)).map(([idx]) => state.tcc[idx].name);
+      el.innerHTML = card(
+        `${MODES[t.mode]?.icon || ''} ${esc(t.name || 'Trip')}`,
+        `${esc(t.date || 'No date')} · ${MODES[t.mode]?.label || t.mode} · ${fmt(Math.round(lineLengthKm(t.coords)))} km`,
+        `${t.waypoints.length ? `<ol class="wp-view">${t.waypoints.map((w) => `<li>${esc(w.name)}</li>`).join('')}</ol>` : ''}
+        ${dests.length ? `<p class="small">Destinations: ${dests.map(esc).join(', ')}</p>` : ''}
+        ${t.routedBy === 'straight' ? '<p class="muted small">Drawn as straight lines (no route found).</p>' : ''}
+        <div class="row"><button type="button" data-action="edit-trip" data-value="${t.id}">Edit</button><button type="button" data-action="delete-trip" data-value="${t.id}">Delete</button></div>`,
+      );
+      return;
+    }
+  }
+
+  if (dest != null) {
+    const t = state.tcc[dest];
+    const st = visitStatus(dest);
+    const ev = evidence().get(dest);
+    const via = ev ? [...ev.airports] : [];
+    const tripList = ev ? [...ev.trips].map((id) => state.trips.find((x) => x.id === id)).filter(Boolean) : [];
+    el.innerHTML = card(
+      esc(t.name),
+      esc(regionsOf(t).join(' · ')),
+      st === 'auto'
+        ? `${via.length ? `<p>Flew to ${via.map((c) => `<a href="#" class="link-btn" data-action="airport" data-value="${c}">${c}</a>`).join(', ')}.</p>` : ''}
+           ${tripList.length ? `<p>Trips: ${tripList.map((x) => `<a href="#" class="link-btn" data-action="trip" data-value="${x.id}">${esc(x.name || x.date || 'trip')}</a>`).join(', ')}.</p>` : ''}`
+        : `<p>${st === 'manual' ? 'Marked as visited.' : 'Not visited yet.'}</p>
+           <button type="button" data-action="toggle-dest" data-value="${dest}">${st === 'manual' ? 'Unmark as visited' : 'Mark as visited'}</button>`,
+    );
     return;
   }
 
   const top = routes
     .slice()
     .sort((a, b) => b.total - a.total)
-    .slice(0, 12);
+    .slice(0, 10);
   el.innerHTML = `
-    <p class="muted small">Click an airport to see its routes, a line for its flights, or a country to mark it as visited.
+    <p class="muted small">Click an airport for its routes, a line for its flights or trip, or a country to mark it as visited.
     Line thickness and colour show how often a route was flown; arrow size shows each direction.</p>
     <h2>Most flown routes</h2>
     <div class="list">
@@ -901,13 +911,13 @@ function renderOverview() {
     </div>
     <h2>Airports</h2>
     <div class="list">
-      ${map.agg.airports
+      ${state.agg.airports
         .slice()
         .sort((a, b) => b.count - a.count)
-        .slice(0, 12)
+        .slice(0, 10)
         .map(
           (a) => `<div class="list-item" data-action="airport" data-value="${a.code}">
-            <div><div>${a.code} <span class="muted small">${esc(airportName(a.code))}</span></div></div>
+            <div>${a.code} <span class="muted small">${esc(airportName(a.code))}</span></div>
             <span class="pill">${a.count}</span>
           </div>`,
         )
@@ -916,20 +926,28 @@ function renderOverview() {
 }
 
 function renderCountries() {
-  const flown = flownDestinations();
-  const regions = d3.group(
-    state.tcc.map((t, i) => ({ ...t, idx: i, status: visitStatus(i, flown) })),
-    (t) => t.region,
-  );
+  const ev = evidence();
+  const entries = state.tcc.map((t, idx) => ({ ...t, idx, status: visitStatus(idx) }));
+  // Destinations spanning two continents appear in both region lists but are one destination.
+  const regions = new Map();
+  for (const t of entries) {
+    for (const r of regionsOf(t)) {
+      if (!regions.has(r)) regions.set(r, []);
+      regions.get(r).push(t);
+    }
+  }
+  const order = [...new Set(state.tcc.map((t) => t.region))];
   const total = state.tcc.length;
-  const visited = state.tcc.filter((t, i) => visitStatus(i, flown)).length;
+  const visited = visitedCount();
   $('#country-progress').innerHTML = `
     <div class="progress-total"><span><b>${visited}</b> <span class="muted">of ${total} TCC destinations</span></span><span class="muted">${Math.round((visited / total) * 100)}%</span></div>
-    <div class="progress"><div style="width:${(visited / total) * 100}%"></div></div>`;
+    <div class="progress"><div style="width:${(visited / total) * 100}%"></div></div>
+    <p class="muted small">${officialCount()} of 330 by official TCC numbering (Russia, Turkey and Egypt are one destination here but two on the TCC list).</p>`;
 
   const q = state.countrySearch;
   const html = [];
-  for (const [region, list] of regions) {
+  for (const region of order) {
+    const list = regions.get(region).slice().sort((a, b) => a.name.localeCompare(b.name));
     const shown = list.filter(
       (t) =>
         (!q || t.name.toLowerCase().includes(q)) &&
@@ -939,11 +957,19 @@ function renderCountries() {
     const v = list.filter((t) => t.status).length;
     html.push(`<div class="region"><div class="region-head">${esc(region)}<span>${v} / ${list.length}</span></div>`);
     for (const t of shown) {
-      const via = flown.get(t.idx);
+      const e = ev.get(t.idx);
+      const other = regionsOf(t).filter((r) => r !== region);
+      let badge = '<span></span>';
+      if (e) {
+        const parts = [];
+        if (e.airports.size) parts.push(`✈ ${[...e.airports].slice(0, 3).join(' ')}${e.airports.size > 3 ? '…' : ''}`);
+        if (e.trips.size) parts.push(`${e.trips.size} trip${e.trips.size > 1 ? 's' : ''}`);
+        badge = `<span class="badge">${parts.join(' · ')}</span>`;
+      }
       html.push(`<div class="country">
-        <input type="checkbox" data-id="${t.id}" ${t.status ? 'checked' : ''} ${t.status === 'flown' ? 'disabled title="Visited by flight"' : ''} aria-label="${esc(t.name)}" />
-        <span class="name" data-focus="${t.idx}">${esc(t.name)}</span>
-        ${via ? `<span class="badge" title="Flights to ${[...via].join(', ')}">✈ ${[...via].slice(0, 3).join(' ')}${via.size > 3 ? '…' : ''}</span>` : '<span></span>'}
+        <input type="checkbox" data-id="${t.id}" ${t.status ? 'checked' : ''} ${t.status === 'auto' ? 'disabled title="Visited by flight or trip"' : ''} aria-label="${esc(t.name)}" />
+        <span class="name" data-focus="${t.idx}">${esc(t.name)}${other.length ? ` <span class="also" title="Also listed under ${esc(other.join(', '))}">+ ${esc(other.join(', '))}</span>` : ''}</span>
+        ${badge}
       </div>`);
     }
     html.push('</div>');
@@ -951,10 +977,259 @@ function renderCountries() {
   $('#country-list').innerHTML = html.join('') || '<p class="muted">No matches.</p>';
 }
 
+// ----------------------------------------------------------------- trips
+
+function initTripsTab() {
+  $('#trip-file').onchange = async (ev) => {
+    const file = ev.target.files[0];
+    ev.target.value = '';
+    if (!file) return;
+    try {
+      const tracks = parseTrackFile(await file.text(), file.name);
+      if (!tracks.length) throw new Error('No tracks found in file.');
+      const mode = $('#trip-file-mode').value;
+      for (const t of tracks) {
+        state.trips.push({
+          id: uid(),
+          mode,
+          name: t.name || file.name.replace(/\.[^.]+$/, ''),
+          date: t.date || '',
+          waypoints: [],
+          coords: t.coords,
+          routedBy: 'track',
+        });
+      }
+      saveTrips();
+      evidenceCache = null;
+      buildYearFilter();
+      update();
+      $('#trip-msg').innerHTML = `<p class="ok">Imported ${tracks.length} track(s).</p>`;
+    } catch (err) {
+      $('#trip-msg').innerHTML = `<p class="warn">${esc(err.message)}</p>`;
+    }
+  };
+  $('#export-trips').onclick = () => download('trips.json', JSON.stringify(state.trips) + '\n');
+  $('#import-trips').onchange = async (ev) => {
+    const file = ev.target.files[0];
+    ev.target.value = '';
+    if (!file) return;
+    try {
+      const trips = JSON.parse(await file.text());
+      if (!Array.isArray(trips)) throw new Error('Expected a JSON array of trips.');
+      setTrips(trips, 'edited');
+      saveTrips();
+      buildYearFilter();
+      update();
+    } catch (err) {
+      $('#trip-msg').innerHTML = `<p class="warn">${esc(err.message)}</p>`;
+    }
+  };
+  $('#reset-trips').onclick = () => {
+    store.set(LS_TRIPS, null);
+    setTrips(state.bundledTrips, 'bundled');
+    buildYearFilter();
+    update();
+  };
+  $('#trips-list').addEventListener('input', onDraftInput);
+  $('#trips-list').addEventListener('change', onDraftInput);
+  $('#trips-list').addEventListener('keydown', (ev) => {
+    if (ev.target.id === 'wp-search' && ev.key === 'Enter') {
+      ev.preventDefault();
+      runSearch(ev.target.value);
+    }
+  });
+}
+
+function onDraftInput(ev) {
+  const d = state.draft;
+  const f = ev.target.dataset.field;
+  if (!d || !f) return;
+  d[f] = ev.target.type === 'checkbox' ? ev.target.checked : ev.target.value;
+  if (f === 'clickToAdd') $('#map-wrap').classList.toggle('adding', d.clickToAdd);
+  if (f === 'mode' && ev.type === 'change') renderTrips();
+}
+
+function startDraft(base) {
+  state.draft = base || { id: null, mode: 'road', name: '', date: '', waypoints: [], clickToAdd: true };
+  state.searchResults = [];
+  $('#map-wrap').classList.toggle('adding', state.draft.clickToAdd);
+  showTab('trips');
+  renderTrips();
+  M.setData('draft', draftGeoJson());
+}
+
+function editTrip(id) {
+  const t = state.trips.find((x) => x.id === id);
+  if (!t) return;
+  startDraft({ id: t.id, mode: t.mode, name: t.name, date: t.date, waypoints: t.waypoints.map((w) => ({ ...w })), clickToAdd: false, coords: t.coords, routedBy: t.routedBy });
+}
+
+function cancelDraft() {
+  state.draft = null;
+  $('#map-wrap').classList.remove('adding');
+  M.setData('draft', draftGeoJson());
+  renderTrips();
+}
+
+function addWaypoint(w) {
+  if (!state.draft || !w) return;
+  state.draft.waypoints.push({ name: w.name, lon: +w.lon, lat: +w.lat });
+  state.searchResults = [];
+  M.setData('draft', draftGeoJson());
+  renderTrips();
+}
+
+function removeWaypoint(i) {
+  state.draft.waypoints.splice(i, 1);
+  M.setData('draft', draftGeoJson());
+  renderTrips();
+}
+
+function moveWaypoint(i, delta) {
+  const wps = state.draft.waypoints;
+  const j = i + delta;
+  if (j < 0 || j >= wps.length) return;
+  [wps[i], wps[j]] = [wps[j], wps[i]];
+  M.setData('draft', draftGeoJson());
+  renderTrips();
+}
+
+async function runSearch(q) {
+  const box = $('#wp-results');
+  box.innerHTML = '<p class="muted small">Searching…</p>';
+  try {
+    state.searchResults = await searchPlaces(q, state.airports);
+    renderSearchResults();
+  } catch (err) {
+    box.innerHTML = `<p class="warn">${esc(err.message)}</p>`;
+  }
+}
+
+function renderSearchResults() {
+  const box = $('#wp-results');
+  if (!box) return;
+  const res = state.searchResults || [];
+  box.innerHTML = res
+    .map((r, i) => `<div class="list-item" data-action="add-result" data-value="${i}"><div><div>${esc(r.name)}</div><div class="sub">${esc(r.detail)}</div></div><span class="pill">+</span></div>`)
+    .join('');
+}
+
+async function saveDraft() {
+  const d = state.draft;
+  const msg = $('#draft-msg');
+  // Imported tracks without stops keep their recorded geometry.
+  const keepTrack = d.id && d.waypoints.length === 0 && d.coords;
+  if (!keepTrack && d.waypoints.length < 2) {
+    msg.innerHTML = '<p class="warn">Add at least two stops.</p>';
+    return;
+  }
+  msg.innerHTML = '<p class="muted small">Finding route…</p>';
+  let { coords, routedBy } = d;
+  let warning = null;
+  if (!keepTrack) ({ coords, routedBy, warning } = await routeTrip(d.mode, d.waypoints));
+  const trip = { id: d.id || uid(), mode: d.mode, name: d.name.trim(), date: d.date, waypoints: d.waypoints, coords, routedBy };
+  const i = state.trips.findIndex((t) => t.id === trip.id);
+  if (i >= 0) state.trips[i] = trip;
+  else state.trips.push(trip);
+  saveTrips();
+  evidenceCache = null;
+  state.draft = null;
+  $('#map-wrap').classList.remove('adding');
+  M.setData('draft', draftGeoJson());
+  buildYearFilter();
+  update();
+  $('#trip-msg').innerHTML = warning ? `<p class="warn">${esc(warning)}</p>` : '';
+  select({ trip: trip.id });
+  M.fitCoords(trip.coords);
+}
+
+function deleteTrip(id) {
+  const t = state.trips.find((x) => x.id === id);
+  if (!t || !confirm(`Delete trip "${t.name || t.date || 'trip'}"?`)) return;
+  state.trips = state.trips.filter((x) => x.id !== id);
+  saveTrips();
+  evidenceCache = null;
+  state.sel = { airport: null, route: null, trip: null, dest: null, anyAirport: null };
+  update();
+}
+
+function renderTrips() {
+  const el = $('#trips-list');
+  const d = state.draft;
+  if (d) {
+    el.innerHTML = `
+      <div class="card draft">
+        <h3>${d.id ? 'Edit trip' : 'New trip'}</h3>
+        <div class="form-grid">
+          <label>Type <select data-field="mode">${Object.entries(MODES)
+            .map(([k, m]) => `<option value="${k}" ${k === d.mode ? 'selected' : ''}>${m.icon} ${m.label}</option>`)
+            .join('')}</select></label>
+          <label>Date <input type="date" data-field="date" value="${esc(d.date)}" /></label>
+          <label class="full">Name <input data-field="name" value="${esc(d.name)}" placeholder="e.g. Norway road trip" /></label>
+        </div>
+        <h2>Stops</h2>
+        <ol class="wp-list">
+          ${d.waypoints
+            .map(
+              (w, i) => `<li><span>${esc(w.name)}</span>
+                <span class="wp-btns">
+                  <button type="button" data-action="wp-up" data-value="${i}" aria-label="Move up">↑</button>
+                  <button type="button" data-action="wp-down" data-value="${i}" aria-label="Move down">↓</button>
+                  <button type="button" data-action="wp-remove" data-value="${i}" aria-label="Remove">✕</button>
+                </span></li>`,
+            )
+            .join('')}
+        </ol>
+        ${d.waypoints.length === 0 && d.coords ? '<p class="muted small">Imported track: its recorded path is kept.</p>' : ''}
+        <input id="wp-search" type="search" placeholder="Search a place or airport code, then Enter" autocomplete="off" />
+        <div id="wp-results" class="list"></div>
+        <label class="small check"><input type="checkbox" data-field="clickToAdd" ${d.clickToAdd ? 'checked' : ''}/> Add stops by clicking the map</label>
+        <p class="muted small">${
+          d.mode === 'road'
+            ? 'Routed along roads (OSRM, OpenStreetMap data).'
+            : d.mode === 'train'
+              ? 'Routed along railway lines (BRouter rail profile, OpenStreetMap data).'
+              : d.mode === 'boat'
+                ? 'Routed along shipping lanes between the ports.'
+                : 'Drawn as straight lines between stops.'
+        }</p>
+        <div id="draft-msg"></div>
+        <div class="row">
+          <button type="button" class="primary" data-action="save-draft">Save trip</button>
+          <button type="button" data-action="cancel-draft">Cancel</button>
+        </div>
+      </div>`;
+    renderSearchResults();
+    return;
+  }
+  const list = filteredTrips();
+  const trips = list.slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  const byMode = d3.rollup(list, (v) => d3.sum(v, (t) => lineLengthKm(t.coords)), (t) => t.mode);
+  el.innerHTML = `
+    <div class="row"><button type="button" class="primary" data-action="new-trip">+ New trip</button></div>
+    ${byMode.size ? `<div class="mode-sums">${[...byMode].map(([m, km]) => `<span class="pill">${MODES[m]?.icon || ''} ${fmt(Math.round(km))} km</span>`).join('')}</div>` : ''}
+    <div class="list">
+      ${
+        trips.length
+          ? trips
+              .map(
+                (t) => `<div class="list-item" data-action="trip" data-value="${t.id}">
+                <div><div>${MODES[t.mode]?.icon || ''} ${esc(t.name || 'Trip')}</div>
+                <div class="sub">${esc(t.date || 'No date')} · ${fmt(Math.round(lineLengthKm(t.coords)))} km${t.routedBy === 'straight' ? ' · straight lines' : ''}</div></div>
+                <span class="pill" style="border-color:${MODES[t.mode]?.color}">${MODES[t.mode]?.label || t.mode}</span>
+              </div>`,
+              )
+              .join('')
+          : '<p class="muted">No trips yet. Add a road trip, train journey or cruise, or import a GPX/KML/GeoJSON track below.</p>'
+      }
+    </div>`;
+}
+
 function renderData() {
   const src = state.flightSource === 'bundled' ? 'Showing the bundled <code>data/flights.csv</code>.' : `Showing ${esc(state.flightSource)} flights stored in this browser.`;
   $('#flight-source').innerHTML = `${src} ${state.flights.length} flights loaded.`;
   $('#reset-flights').hidden = state.flightSource === 'bundled';
+  $('#reset-trips').hidden = state.tripSource === 'bundled';
   const bad = state.unresolved;
   $('#import-warnings').innerHTML = bad.length
     ? `<p class="warn">${bad.length} flight(s) skipped, unknown airport: ${bad

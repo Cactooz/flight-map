@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Flight Map</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ctext y=%22.9em%22 font-size=%2290%22%3E✈️%3C/text%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="vendor/maplibre-gl.css" />
     <link rel="stylesheet" href="src/style.css" />
     <script src="vendor/d3.min.js"></script>
     <script src="vendor/topojson-client.min.js"></script>
@@ -12,14 +13,14 @@
   <body>
     <div id="app">
       <main id="map-wrap">
-        <svg id="map" role="img" aria-label="World map of flights and visited destinations"></svg>
+        <div id="map" role="region" aria-label="World map of flights, trips and visited destinations"></div>
         <div id="tooltip" hidden></div>
-        <div id="map-controls">
-          <button type="button" id="zoom-in" title="Zoom in" aria-label="Zoom in">+</button>
-          <button type="button" id="zoom-out" title="Zoom out" aria-label="Zoom out">&minus;</button>
-          <button type="button" id="zoom-reset" title="Reset view" aria-label="Reset view">&#8634;</button>
+        <div id="layers-box">
+          <button type="button" id="layers-toggle" aria-label="Map layers">☰ Layers</button>
+          <div id="layers"></div>
         </div>
         <div id="legend"></div>
+        <div id="adding-hint">Click the map or an airport to add a stop</div>
         <div id="loading">Loading map&hellip;</div>
       </main>
 
@@ -36,6 +37,7 @@
         <nav class="tabs" role="tablist">
           <button type="button" role="tab" data-tab="overview" aria-selected="true">Overview</button>
           <button type="button" role="tab" data-tab="countries" aria-selected="false">Countries</button>
+          <button type="button" role="tab" data-tab="trips" aria-selected="false">Trips</button>
           <button type="button" role="tab" data-tab="data" aria-selected="false">Data</button>
         </nav>
 
@@ -50,6 +52,29 @@
             <label><input type="radio" name="cfilter" value="missing" /> Not visited</label>
           </div>
           <div id="country-list"></div>
+        </section>
+
+        <section class="tab" id="tab-trips" role="tabpanel" hidden>
+          <div id="trips-list"></div>
+          <div id="trip-msg"></div>
+          <h2>Import a track</h2>
+          <p class="muted small">GPX, KML or GeoJSON, e.g. from Google Maps, Strava, Komoot or Polarsteps.</p>
+          <div class="row">
+            <select id="trip-file-mode">
+              <option value="road">🚗 Road</option>
+              <option value="train">🚆 Train</option>
+              <option value="boat">🚢 Boat / cruise</option>
+              <option value="other">📍 Other</option>
+            </select>
+            <label class="btn">Choose file<input type="file" id="trip-file" accept=".gpx,.kml,.json,.geojson" hidden /></label>
+          </div>
+          <h2>Save &amp; share</h2>
+          <p class="muted small">Trips are stored in this browser. Export them to <code>data/trips.json</code> to publish them with the site.</p>
+          <div class="row">
+            <button type="button" id="export-trips">Export trips.json</button>
+            <label class="btn">Import trips.json<input type="file" id="import-trips" accept=".json,application/json" hidden /></label>
+            <button type="button" id="reset-trips">Use bundled trips</button>
+          </div>
         </section>
 
         <section class="tab" id="tab-data" role="tabpanel" hidden>

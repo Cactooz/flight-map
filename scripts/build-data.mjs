@@ -15,7 +15,8 @@ import { group as d3group } from 'd3-array';
 import { topology } from 'topojson-server';
 import { presimplify, simplify, quantile } from 'topojson-simplify';
 import { feature, merge } from 'topojson-client';
-import { TCC, slug } from '../src/tcc-list.js';
+import { build } from 'esbuild';
+import { TCC, idOf } from '../src/tcc-list.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const pkgDir = (name) => join(root, 'node_modules', name);
@@ -27,11 +28,14 @@ const entries = TCC.map((e, i) => {
   const rCountries = (e.r || []).map((r) => r.split('-')[0]);
   return {
     ...e,
-    id: slug(e.name),
+    id: idOf(e),
     index: i,
     boxCountries: new Set(e.bc || [...(e.c || []), ...rCountries]),
   };
 });
+
+const numbers = entries.flatMap((e) => e.n).sort((a, b) => a - b);
+if (numbers.length !== 330 || numbers.some((n, i) => n !== i + 1)) throw new Error('TCC numbers must cover 1..330 exactly once');
 
 const ids = new Set();
 for (const e of entries) {
@@ -149,8 +153,8 @@ const WORLD_ATLAS_CC = {
   Åland: ['AX'],
   'Siachen Glacier': ['IN', 'IN-LA'],
   'Ashmore and Cartier Is.': ['AU'],
-  Dhekelia: ['CY'],
-  Akrotiri: ['CY'],
+  Dhekelia: ['XB'],
+  Akrotiri: ['XB'],
   'Cyprus U.N. Buffer Zone': ['CY'],
   'USNB Guantanamo Bay': ['CU'],
   Baikonur: ['KZ'],
@@ -231,8 +235,10 @@ const tccOut = entries.map((e) => {
   if (!pt) console.warn(`No geometry or marker position for ${e.name}`);
   return {
     id: e.id,
+    n: e.n,
     name: e.name,
     region: e.region,
+    ...(e.also ? { also: e.also } : {}),
     pt: pt ? pt.map((v) => Math.round(v * 100) / 100) : null,
     shape: !!polys,
     // Steradians * 1e6, used to decide which destinations get a marker.
@@ -249,6 +255,19 @@ writeFileSync(join(root, 'data', 'tcc.json'), JSON.stringify(tccOut, null, 0).re
 writeFileSync(join(root, 'data', 'tcc-shapes.json'), JSON.stringify(topo));
 copyFileSync(join(pkgDir('d3'), 'dist', 'd3.min.js'), join(root, 'vendor', 'd3.min.js'));
 copyFileSync(join(pkgDir('topojson-client'), 'dist', 'topojson-client.min.js'), join(root, 'vendor', 'topojson-client.min.js'));
+for (const f of ['maplibre-gl.mjs', 'maplibre-gl-worker.mjs', 'maplibre-gl.css']) {
+  copyFileSync(join(pkgDir('maplibre-gl'), 'dist', f), join(root, 'vendor', f));
+}
+// Offline sea routing (Eurostat maritime network) for boat trips, loaded on demand.
+await build({
+  entryPoints: [join(root, 'scripts', 'searoute-entry.js')],
+  bundle: true,
+  format: 'esm',
+  minify: true,
+  platform: 'browser',
+  outfile: join(root, 'vendor', 'searoute.mjs'),
+  logLevel: 'warning',
+});
 
 console.log(`airports: ${Object.keys(airports).length}`);
 console.log(`tcc entries: ${entries.length}, with shapes: ${parts.size}`);

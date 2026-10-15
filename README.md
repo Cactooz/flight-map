@@ -1,21 +1,38 @@
 # Flight Map
 
-A static website that maps your flights (from a myFlightradar24 export) and the
-[Travelers' Century Club](https://travelerscenturyclub.org/) countries and
-territories you have visited.
+A static website that maps your flights (from a myFlightradar24 export), your
+road trips, train journeys and cruises, and the
+[Travelers' Century Club](https://travelerscenturyclub.org/) destinations you
+have visited, on an OpenStreetMap basemap.
 
-- **Routes** are drawn as great circles between airports. Thickness and colour
-  saturation grow with how often a route was flown.
-- **Arrows** on each line show direction. Their size is proportional to the
-  number of flights in that direction, so 5 flights one way and 3 the other
-  gives arrows in a 5:3 ratio.
-- **Click an airport** to see every route to and from it (with per-direction
-  counts) and its flights. Click a line to see the flights on that route.
-- **Countries / territories** are filled automatically from the airports you
-  flew to (e.g. LYR counts as Svalbard, HER as Crete, SAW as Turkey in Asia).
-  Destinations you visited without flying can be ticked in the *Countries* tab
-  or by clicking them on the map.
-- A **year filter** restricts the map and stats to one year.
+## Features
+
+- **Flights:** each route is a curved great-circle line. It gets thicker and
+  more saturated the more often you've flown it. Each direction has an arrow
+  sized by its number of flights, so 5 flights one way and 3 the other gives
+  arrows in a 5:3 ratio.
+- **Airports:** click one to see every route to and from it (with counts per
+  direction) and its flights. Click a line to see the flights on that route.
+  The *All airports* layer shows every airport with an IATA code (~9,000).
+- **Trips:** add road trips, train journeys, boat trips and cruises in the
+  *Trips* tab. Add stops by searching (place names via OpenStreetMap, or
+  airport codes) or by clicking the map. Each mode is routed differently:
+  - **Road:** along roads, using OSRM.
+  - **Train:** along railway lines, using BRouter's rail profile.
+  - **Boat:** along shipping lanes, computed offline with `searoute-ts`.
+
+  You can also import recorded tracks from GPX, KML or GeoJSON files.
+- **Heatmap:** shows where you have been most, built from points along your
+  trips and the airports you used.
+- **Countries:** the 330-entry TCC list.
+  - Destinations are ticked automatically from airports and from the places
+    your trips pass through.
+  - Destinations you reached another way can be ticked by hand.
+  - Russia, Turkey and Egypt are one destination each here, listed under both
+    of their regions; TCC counts each of them twice. The panel shows both
+    counts.
+- **Map options:** a dark or standard OpenStreetMap basemap, a railway overlay
+  (OpenRailwayMap), a globe view, and a year filter.
 
 ## Running
 
@@ -33,26 +50,46 @@ Then open http://localhost:8080. It can be hosted as-is on GitHub Pages
 | File | What |
 | --- | --- |
 | `data/flights.csv` | Flights shown by default. Same format as the myFlightradar24 export (Settings → Export flights). Notes, seats and flight reason were stripped from the bundled copy. |
-| `data/visited.json` | Destination ids you visited without flying, e.g. `["iceland", "vatican-city"]`. Use *Data → Export visited.json* on the site to produce it. |
+| `data/visited.json` | Destination ids visited without flying, e.g. `["iceland", "andorra"]`. Seeded from your TCC tracking spreadsheet. |
+| `data/trips.json` | Road / rail / boat trips. Use *Trips → Export trips.json* on the site to produce it. |
 
-Importing a CSV or ticking destinations on the site saves to the browser's
-local storage. To publish changes, replace `data/flights.csv` and
-`data/visited.json` in the repo.
+Anything you import, add or tick on the site is saved in that browser's local
+storage. To publish it, export the JSON files and replace the ones in `data/`.
+
+## External services
+
+The site works offline (without basemap tiles) because the country shapes are
+bundled. When online, it uses free OpenStreetMap-based services meant for
+light personal use:
+
+| Service | What it's used for |
+| --- | --- |
+| CARTO dark tiles and OpenStreetMap standard tiles | Basemaps |
+| OpenRailwayMap | Railway overlay |
+| [OSRM demo server](https://router.project-osrm.org/) | Road routing |
+| [BRouter](https://brouter.de/) | Rail routing |
+| [Nominatim](https://nominatim.openstreetmap.org/) | Place search |
+
+If road or rail routing fails, the trip is saved as straight lines between
+its stops.
 
 ## Destination list and map data
 
-`src/tcc-list.js` holds the TCC destinations and the rules that map airports
-and map polygons onto them (by ISO country, ISO 3166-2 region, lon/lat box, or
-an explicit IATA override). The list was reconstructed by hand, so check it
-against the current official TCC list and edit as needed, then regenerate the
-data files:
+`src/tcc-list.js` holds the TCC destinations, with their official numbers. It
+also holds the rules that map airports, trip points and polygons onto each
+destination: ISO country, ISO 3166-2 region, a lon/lat box, or an explicit
+IATA override. After editing it, regenerate the data files:
 
 ```sh
 npm install
 npm run build:data
 ```
 
-This writes `data/airports.json` (OurAirports, ~9,000 airports with IATA
-codes), `data/tcc.json`, `data/tcc-shapes.json` (Natural Earth admin-0/admin-1
-polygons dissolved per destination) and copies d3 / topojson-client into
-`vendor/`.
+This writes the following files:
+
+- `data/airports.json`: OurAirports data.
+- `data/tcc.json`: the destination list.
+- `data/tcc-shapes.json`: Natural Earth polygons, merged into one shape per
+  destination.
+- The browser libraries in `vendor/`: MapLibre GL, d3, topojson-client, and
+  the bundled sea-routing network.
