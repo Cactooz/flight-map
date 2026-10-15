@@ -63,6 +63,8 @@ const state = {
   searchResults: [],
   countryFilter: 'all',
   countryView: 'countries', // 'countries' | 'tcc'
+  expand: { routes: false, airports: false, airlines: false }, // Flights tab "Show all"
+  tripFilter: 'all', // Trips tab: 'all' | 'flight' | a trip mode
   tccGroup: 'region', // 'region' | 'continent'
   countrySearch: '',
 };
@@ -723,7 +725,6 @@ function onClick(hit, ev) {
 function select(sel) {
   state.sel = { airport: null, route: null, trip: null, dest: null, anyAirport: null, city: null, ...sel };
   applyHighlight();
-  if (!state.draft) showTab('overview');
   renderOverview();
 }
 
@@ -835,6 +836,17 @@ function initPanel() {
     } else if (action === 'delete-trip') deleteTrip(value);
     else if (action === 'edit-trip') editTrip(value);
     else if (action === 'new-trip') startDraft();
+    else if (action === 'expand') {
+      state.expand[value] = !state.expand[value];
+      renderFlights();
+    } else if (action === 'trip-filter') {
+      state.tripFilter = value;
+      renderTrips();
+    } else if (action === 'flight-route') {
+      const [from, to] = value.split('|');
+      select({ route: routeKey(from, to) });
+      M.fitCoords([coord(from), coord(to)], 8);
+    }
     else if (action === 'city') {
       const c = state.cities.find((x) => x.id === value);
       if (c) {
@@ -844,6 +856,7 @@ function initPanel() {
     } else if (action === 'city-result') addCity(state.cityResults[+value]);
     else if (action === 'delete-city') deleteCity(value);
     else if (action === 'city-add') addTypedCities();
+    else if (action === 'goto-add') showTab('data');
     else if (action === 'city-add-toggle') setCityAdd(!state.cityAdd);
     else if (action === 'reroute') rerouteStraight();
     else if (action === 'cancel-draft') cancelDraft();
@@ -1032,8 +1045,11 @@ function card(title, sub, body) {
     </div>${body}</div>`;
 }
 
+/** Details of the selected airport / route / trip / destination / city, shown above the tabs. */
 function renderOverview() {
-  const el = $('#tab-overview');
+  renderFlights();
+  const el = $('#details');
+  el.hidden = false;
   const { routes } = state.agg;
   const { airport, route, trip, dest, anyAirport } = state.sel;
   const { city } = state.sel;
@@ -1155,38 +1171,59 @@ function renderOverview() {
     return;
   }
 
-  const top = routes
-    .slice()
-    .sort((a, b) => b.total - a.total)
-    .slice(0, 10);
+  el.hidden = true;
+  el.innerHTML = '';
+}
+
+const routeRow = (r) => `<div class="list-item" data-action="route" data-value="${r.key}">
+  <div><div>${routeTitle(r)}</div><div class="sub">${routeSub(r)}</div></div>
+  ${isLoop(r) ? `<span class="pill">${r.total}</span>` : `<span class="dir"><span class="pill" title="${r.a} → ${r.b}">→ ${r.ab}</span><span class="pill" title="${r.b} → ${r.a}">← ${r.ba}</span></span>`}
+</div>`;
+
+const airportRow = (a) => `<div class="list-item" data-action="airport" data-value="${a.code}">
+  <div><div>${a.code} <span class="muted small">${esc(airportName(a.code))}</span></div><div class="sub">${a.routes.size} route${a.routes.size === 1 ? '' : 's'}</div></div>
+  <span class="pill">${a.count}</span>
+</div>`;
+
+/** Flights tab: flight statistics, most flown routes and airports (top 10, expandable). */
+function renderFlights() {
+  const el = $('#tab-flights');
+  const flights = filteredFlights();
+  const { routes, airports } = state.agg;
+  const km = d3.sum(flights, (f) => airportKm(f.from, f.to));
+  const hours = d3.sum(flights, (f) => {
+    const [h, m] = (f.duration || '').split(':').map(Number);
+    return Number.isFinite(h) ? h + (m || 0) / 60 : 0;
+  });
+  const longest = flights.reduce((best, f) => (!best || airportKm(f.from, f.to) > airportKm(best.from, best.to) ? f : best), null);
+  const airlines = d3.rollups(flights.filter((f) => f.airline), (v) => v.length, (f) => f.airline).sort((a, b) => b[1] - a[1]);
+  const countries = new Set(airports.map((a) => state.airports[a.code][2]));
+  const byRoute = routes.slice().sort((a, b) => b.total - a.total);
+  const byAirport = airports.slice().sort((a, b) => b.count - a.count);
+  const LIMIT = 10;
+  const more = (key, n) =>
+    n > LIMIT ? `<button type="button" class="show-all" data-action="expand" data-value="${key}">${state.expand[key] ? 'Show fewer' : `Show all ${n}`}</button>` : '';
+  const stat = (v, l) => `<div class="stat"><b>${v}</b><span>${l}</span></div>`;
   el.innerHTML = `
-    <p class="muted small">Click an airport for its routes, a line for its flights or trip, or a country to mark it as visited.
-    Line thickness and colour show how often a route was flown; arrow size shows each direction.</p>
-    <h2>Most flown routes</h2>
-    <div class="list">
-      ${top
-        .map(
-          (r) => `<div class="list-item" data-action="route" data-value="${r.key}">
-            <div><div>${routeTitle(r)}</div><div class="sub">${routeSub(r)}</div></div>
-            ${isLoop(r) ? `<span class="pill">${r.total}</span>` : `<span class="dir"><span class="pill" title="${r.a} → ${r.b}">→ ${r.ab}</span><span class="pill" title="${r.b} → ${r.a}">← ${r.ba}</span></span>`}
-          </div>`,
-        )
-        .join('')}
+    <div class="stats">
+      ${stat(fmt(flights.length), 'Flights')}
+      ${stat(fmt(Math.round(km)), 'Kilometres')}
+      ${stat(hours ? fmt(Math.round(hours)) : '–', 'Hours in the air')}
+      ${stat(fmt(airports.length), 'Airports')}
+      ${stat(fmt(routes.length), 'Routes')}
+      ${stat(fmt(countries.size), 'Countries')}
     </div>
+    ${longest ? `<p class="small">Longest flight: <a href="#" class="link-btn" data-action="route" data-value="${routeKey(longest.from, longest.to)}">${longest.from} → ${longest.to}</a> · ${fmt(Math.round(airportKm(longest.from, longest.to)))} km${longest.date ? ` (${esc(longest.date)})` : ''}</p>` : ''}
+    <p class="muted small">Click an airport for its routes or a route for its flights. Line thickness and colour show how often a route was flown; arrow size shows each direction.</p>
+    <h2>Most flown routes</h2>
+    <div class="list">${(state.expand.routes ? byRoute : byRoute.slice(0, LIMIT)).map(routeRow).join('')}</div>
+    ${more('routes', byRoute.length)}
     <h2>Airports</h2>
-    <div class="list">
-      ${state.agg.airports
-        .slice()
-        .sort((a, b) => b.count - a.count)
-        .slice(0, 10)
-        .map(
-          (a) => `<div class="list-item" data-action="airport" data-value="${a.code}">
-            <div>${a.code} <span class="muted small">${esc(airportName(a.code))}</span></div>
-            <span class="pill">${a.count}</span>
-          </div>`,
-        )
-        .join('')}
-    </div>`;
+    <div class="list">${(state.expand.airports ? byAirport : byAirport.slice(0, LIMIT)).map(airportRow).join('')}</div>
+    ${more('airports', byAirport.length)}
+    ${airlines.length ? `<h2>Airlines</h2>
+    <div class="list">${(state.expand.airlines ? airlines : airlines.slice(0, LIMIT)).map(([name, n]) => `<div class="list-item"><span>${esc(name)}</span><span class="pill">${n}</span></div>`).join('')}</div>
+    ${more('airlines', airlines.length)}` : ''}`;
 }
 
 function flag(iso) {
@@ -1367,22 +1404,22 @@ function initTripsTab() {
     buildYearFilter();
     update();
   };
-  $('#trips-list').addEventListener('input', onDraftInput);
-  $('#trips-list').addEventListener('change', onDraftInput);
-  $('#trips-list').addEventListener('keydown', (ev) => {
+  $('#trip-form').addEventListener('input', onDraftInput);
+  $('#trip-form').addEventListener('change', onDraftInput);
+  $('#trip-form').addEventListener('keydown', (ev) => {
     if (ev.target.id === 'wp-search' && ev.key === 'Enter') {
       ev.preventDefault();
       addTypedStops();
     }
   });
-  $('#tab-cities').addEventListener('keydown', (ev) => {
+  $('#city-form-box').addEventListener('keydown', (ev) => {
     if (ev.target.id === 'city-search' && ev.key === 'Enter') {
       ev.preventDefault();
       addTypedCities();
     }
   });
   // Keep the date / mode choice while adding several cities.
-  $('#tab-cities').addEventListener('change', (ev) => {
+  $('#city-form-box').addEventListener('change', (ev) => {
     if (ev.target.id === 'city-date') state.cityForm.date = ev.target.value;
     if (ev.target.id === 'city-mode') state.cityForm.mode = ev.target.value;
   });
@@ -1472,7 +1509,8 @@ async function addTypedCities() {
 }
 
 function renderCities() {
-  $('#cities-panel').innerHTML = citiesSection();
+  $('#cities-panel').innerHTML = cityList();
+  $('#city-form-box').innerHTML = cityForm();
   $('#city-date').value = state.cityForm.date;
   $('#city-mode').value = state.cityForm.mode;
 }
@@ -1490,13 +1528,9 @@ async function runCitySearch(q) {
   }
 }
 
-function citiesSection() {
-  const list = state.cities.slice().sort((a, b) => (b.date || '').localeCompare(a.date || '') || a.name.localeCompare(b.name));
-  const stops = (state.cityPoints || []).filter((c) => c.kind === 'stop').length;
+function cityForm() {
   return `
-    <h2>Add cities you've visited</h2>
-    <p class="muted small">Type one or more cities separated by commas and press Enter. With one name you pick the right match; the date and travel mode (optional) apply to the cities you add.
-    Cities show as pink rings (trip stops as white rings), add to the heatmap and mark their country as visited.</p>
+    <p class="muted small">Type one or more cities separated by commas and press Enter. With one name you pick the right match; the date and travel mode (optional) apply to the cities you add.</p>
     <div class="city-form">
       <div class="wp-add full">
         <input id="city-search" type="search" placeholder="e.g. Paris, Lyon, Kyoto" autocomplete="off" />
@@ -1509,7 +1543,16 @@ function citiesSection() {
       </select>
       <button type="button" data-action="city-add-toggle" class="${state.cityAdd ? 'on' : ''}">${state.cityAdd ? 'Done clicking' : 'Click map to add'}</button>
     </div>
-    <div id="city-results" class="list"></div>
+    <div id="city-results" class="list"></div>`;
+}
+
+function cityList() {
+  const list = state.cities.slice().sort((a, b) => (b.date || '').localeCompare(a.date || '') || a.name.localeCompare(b.name));
+  const stops = (state.cityPoints || []).filter((c) => c.kind === 'stop');
+  return `
+    <p class="muted small">Cities you added show as pink rings, trip stops as white rings. Both add to the heatmap; cities also mark their country as visited.
+    Add more under <a href="#" class="link-btn" data-action="goto-add">Add</a>.</p>
+    <h2>Cities you visited (${list.length})</h2>
     <div class="list">
       ${list
         .map(
@@ -1518,8 +1561,13 @@ function citiesSection() {
             <button type="button" class="close" data-action="delete-city" data-value="${c.id}" aria-label="Delete ${esc(c.name)}">✕</button>
           </div>`,
         )
-        .join('') || `<p class="muted small">No cities added yet${stops ? ` (${stops} trip stops shown automatically)` : ''}.</p>`}
-    </div>`;
+        .join('') || '<p class="muted small">No cities added yet.</p>'}
+    </div>
+    ${stops.length ? `<h2>Trip stops (${stops.length})</h2>
+    <div class="list">${stops
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((c) => `<div class="list-item" data-action="trip" data-value="${c.trips[0].id}"><div><div>${esc(c.name)}</div><div class="sub">${c.trips.map((t) => `${MODES[t.mode]?.icon || ''} ${esc(t.name || t.date)}`).join(' · ')}</div></div></div>`)
+      .join('')}</div>` : ''}`;
 }
 
 function startDraft(base) {
@@ -1528,7 +1576,7 @@ function startDraft(base) {
   state.draft = base || { id: null, mode: 'road', name: '', date: '', waypoints: [], clickToAdd: true };
   state.searchResults = [];
   $('#map-wrap').classList.toggle('adding', state.draft.clickToAdd);
-  showTab('trips');
+  showTab('data');
   renderTrips();
   M.setData('draft', draftGeoJson());
 }
@@ -1697,7 +1745,8 @@ function deleteTrip(id) {
 }
 
 function renderTrips() {
-  const el = $('#trips-list');
+  renderTripList();
+  const el = $('#trip-form');
   const d = state.draft;
   if (d) {
     el.innerHTML = `
@@ -1749,31 +1798,55 @@ function renderTrips() {
     renderSearchResults();
     return;
   }
-  const list = filteredTrips();
-  const trips = list.slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-  const byMode = d3.rollup(list, (v) => d3.sum(v, (t) => lineLengthKm(t.coords)), (t) => t.mode);
   el.innerHTML = `
     <div class="row"><button type="button" class="primary" data-action="new-trip">+ New trip</button>${
       state.trips.some(needsRouting)
         ? `<button type="button" data-action="reroute" title="Look up the actual road and rail routes for trips drawn as straight lines">Route ${state.trips.filter(needsRouting).length} straight-line trips</button>`
         : ''
-    }</div>
-    ${byMode.size ? `<div class="mode-sums">${[...byMode].map(([m, km]) => `<span class="pill">${MODES[m]?.icon || ''} ${fmt(Math.round(km))} km</span>`).join('')}</div>` : ''}
-    <div class="list">
-      ${
-        trips.length
-          ? trips
-              .map(
-                (t) => `<div class="list-item" data-action="trip" data-value="${t.id}">
-                <div><div>${MODES[t.mode]?.icon || ''} ${esc(t.name || 'Trip')}</div>
-                <div class="sub">${esc(t.date || 'No date')} · ${fmt(Math.round(lineLengthKm(t.coords)))} km${t.routedBy === 'straight' ? ' · straight lines' : ''}</div></div>
-                <span class="pill" style="border-color:${MODES[t.mode]?.color}">${MODES[t.mode]?.label || t.mode}</span>
-              </div>`,
-              )
-              .join('')
-          : '<p class="muted">No trips yet. Add a road trip, train journey or cruise, or import a GPX/KML/GeoJSON track below.</p>'
-      }
-    </div>`;
+    }</div>`;
+}
+
+/** Trips tab: every journey (flights and ground/sea trips) by date, filterable by type. */
+function renderTripList() {
+  const flights = filteredFlights().map((f) => ({
+    kind: 'flight',
+    date: f.date,
+    time: f.depTime || '',
+    km: f.from === f.to ? 0 : airportKm(f.from, f.to),
+    f,
+  }));
+  const trips = filteredTrips().map((t) => ({ kind: t.mode, date: t.date || '', time: '', km: lineLengthKm(t.coords), t }));
+  const all = [...flights, ...trips];
+  const kinds = [['all', 'All', all.length], ['flight', '✈️ Flights', flights.length]];
+  for (const [k, m] of Object.entries(MODES)) {
+    const n = trips.filter((x) => x.kind === k).length;
+    if (n) kinds.push([k, `${m.icon} ${m.label}`, n]);
+  }
+  if (!kinds.some(([k]) => k === state.tripFilter)) state.tripFilter = 'all';
+  const km = (list) => fmt(Math.round(d3.sum(list, (x) => x.km)));
+  $('#trip-filter').innerHTML = kinds
+    .map(([k, label, n]) => `<button type="button" class="chip ${state.tripFilter === k ? 'on' : ''}" data-action="trip-filter" data-value="${k}">${label} <span class="muted">${n}</span></button>`)
+    .join('');
+  const shown = all
+    .filter((x) => state.tripFilter === 'all' || x.kind === state.tripFilter)
+    .sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time));
+  const byYear = d3.groups(shown, (x) => (x.date || '').slice(0, 4) || 'No date');
+  const row = (x) =>
+    x.kind === 'flight'
+      ? `<div class="list-item" data-action="flight-route" data-value="${x.f.from}|${x.f.to}">
+          <div><div>✈️ ${x.f.from} → ${x.f.to} <span class="muted small">${esc(airportName(x.f.from))} – ${esc(airportName(x.f.to))}</span></div>
+          <div class="sub">${esc(x.date)}${x.f.flightNo ? ` · ${esc(x.f.flightNo)}` : ''}${x.f.airline ? ` · ${esc(x.f.airline)}` : ''}</div></div>
+          <span class="pill">${x.km ? `${fmt(Math.round(x.km))} km` : 'local'}</span>
+        </div>`
+      : `<div class="list-item" data-action="trip" data-value="${x.t.id}">
+          <div><div>${MODES[x.t.mode]?.icon || ''} ${esc(x.t.name || 'Trip')}</div>
+          <div class="sub">${esc(x.date || 'No date')}${x.t.routedBy === 'straight' ? ' · straight lines' : ''}</div></div>
+          <span class="pill" style="border-color:${MODES[x.t.mode]?.color}">${fmt(Math.round(x.km))} km</span>
+        </div>`;
+  $('#trips-list').innerHTML = shown.length
+    ? `<p class="muted small">${shown.length} journeys · ${km(shown)} km</p>` +
+      byYear.map(([year, list]) => `<h2>${esc(year)} <span class="muted">· ${list.length} · ${km(list)} km</span></h2><div class="list">${list.map(row).join('')}</div>`).join('')
+    : '<p class="muted">Nothing here yet. Add trips and flights in the <a href="#" class="link-btn" data-action="goto-add">Add</a> tab.</p>';
 }
 
 function renderData() {

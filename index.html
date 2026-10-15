@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Flight Map</title>
+    <title>Travel Map</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ctext y=%22.9em%22 font-size=%2290%22%3E✈️%3C/text%3E%3C/svg%3E" />
     <link rel="stylesheet" href="vendor/maplibre-gl.css" />
     <link rel="stylesheet" href="src/style.css" />
@@ -26,7 +26,7 @@
 
       <aside id="panel">
         <header class="panel-head">
-          <h1>Flight Map</h1>
+          <h1>Travel Map</h1>
           <label class="year-filter">
             <span>Period</span>
             <select id="year-filter"><option value="all">All years</option></select>
@@ -34,17 +34,18 @@
         </header>
         <section id="stats" class="stats"></section>
 
+        <!-- Details of whatever is selected on the map or in a list. -->
+        <section id="details" hidden></section>
+
         <nav class="tabs" role="tablist">
-          <button type="button" role="tab" data-tab="overview" aria-selected="true">Overview</button>
-          <button type="button" role="tab" data-tab="countries" aria-selected="false">Countries</button>
+          <button type="button" role="tab" data-tab="countries" aria-selected="true">Countries</button>
           <button type="button" role="tab" data-tab="trips" aria-selected="false">Trips</button>
           <button type="button" role="tab" data-tab="cities" aria-selected="false">Cities</button>
-          <button type="button" role="tab" data-tab="data" aria-selected="false">Data</button>
+          <button type="button" role="tab" data-tab="flights" aria-selected="false">Flights</button>
+          <button type="button" role="tab" data-tab="data" aria-selected="false">Add</button>
         </nav>
 
-        <section class="tab" id="tab-overview" role="tabpanel"></section>
-
-        <section class="tab" id="tab-countries" role="tabpanel" hidden>
+        <section class="tab" id="tab-countries" role="tabpanel">
           <div class="seg" role="group" aria-label="List">
             <button type="button" data-cview="countries" aria-pressed="true">Countries</button>
             <button type="button" data-cview="tcc" aria-pressed="false">TCC destinations</button>
@@ -68,14 +69,23 @@
           <div id="country-list"></div>
         </section>
 
+        <section class="tab" id="tab-trips" role="tabpanel" hidden>
+          <div id="trip-filter" class="chips"></div>
+          <div id="trips-list"></div>
+        </section>
+
         <section class="tab" id="tab-cities" role="tabpanel" hidden>
           <div id="cities-panel"></div>
         </section>
 
-        <section class="tab" id="tab-trips" role="tabpanel" hidden>
-          <div id="trips-list"></div>
+        <section class="tab" id="tab-flights" role="tabpanel" hidden></section>
+
+        <section class="tab" id="tab-data" role="tabpanel" hidden>
+          <h2>Add a trip</h2>
+          <p class="muted small">Car, bus, train, boat or other journeys.</p>
+          <div id="trip-form"></div>
           <div id="trip-msg"></div>
-          <h2>Import a track</h2>
+          <h3 class="sub-head">Import a recorded track</h3>
           <p class="muted small">GPX, KML or GeoJSON, e.g. from Google Maps, Strava, Komoot or Polarsteps.</p>
           <div class="row">
             <select id="trip-file-mode">
@@ -87,49 +97,45 @@
             </select>
             <label class="btn">Choose file<input type="file" id="trip-file" accept=".gpx,.kml,.json,.geojson" hidden /></label>
           </div>
-          <h2>Save &amp; share</h2>
-          <p class="muted small">Trips and cities are stored in this browser. Export them to <code>data/trips.json</code> and <code>data/cities.json</code> to publish them with the site.</p>
-          <div class="row">
-            <button type="button" id="export-trips">Export trips.json</button>
-            <label class="btn">Import trips.json<input type="file" id="import-trips" accept=".json,application/json" hidden /></label>
-            <button type="button" id="reset-trips">Use bundled trips</button>
-          </div>
-          <div class="row">
-            <button type="button" id="export-cities">Export cities.json</button>
-            <label class="btn">Import cities.json<input type="file" id="import-cities" accept=".json,application/json" hidden /></label>
-            <button type="button" id="reset-cities">Use bundled cities</button>
-          </div>
-        </section>
 
-        <section class="tab" id="tab-data" role="tabpanel" hidden>
-          <h2>Flights</h2>
-          <p class="muted" id="flight-source"></p>
+          <h2>Add flights</h2>
+          <form id="add-flight" class="add-flight">
+            <input name="from" placeholder="From (IATA)" maxlength="4" required />
+            <input name="to" placeholder="To (IATA)" maxlength="4" required />
+            <input name="date" type="date" />
+            <button type="submit">Add flight</button>
+          </form>
           <div id="drop-zone">
             <p>
-              Drop your <strong>myFlightradar24 CSV export</strong> here or
+              Or drop your <strong>myFlightradar24 CSV export</strong> here /
               <label class="link-btn">choose a file<input type="file" id="csv-input" accept=".csv,text/csv" hidden /></label>
             </p>
-            <p class="muted small">Export it from my.flightradar24.com &rarr; Settings &rarr; Export flights.</p>
+            <p class="muted small">Export it from my.flightradar24.com &rarr; Settings &rarr; Export flights. It replaces the flights shown.</p>
           </div>
+          <p class="muted small" id="flight-source"></p>
           <div class="row">
             <button type="button" id="reset-flights">Use bundled flights</button>
           </div>
           <div id="import-warnings"></div>
 
-          <h2>Add a flight</h2>
-          <form id="add-flight" class="add-flight">
-            <input name="from" placeholder="From (IATA)" maxlength="4" required />
-            <input name="to" placeholder="To (IATA)" maxlength="4" required />
-            <input name="date" type="date" />
-            <button type="submit">Add</button>
-          </form>
-          <p class="muted small">Manually added flights are stored in this browser together with the imported ones.</p>
+          <h2>Add cities</h2>
+          <div id="city-form-box"></div>
 
-          <h2>Visited destinations</h2>
+          <h2>Save &amp; share</h2>
           <p class="muted small">
-            Destinations you mark by hand are saved in this browser on top of <code>data/visited.json</code>.
-            Export them to that file to publish them with the site.
+            Everything you add is stored in this browser. Export the files and put them in <code>data/</code>
+            to publish them with the site (flights: replace <code>data/flights.csv</code> with your FR24 export).
           </p>
+          <div class="row">
+            <button type="button" id="export-trips">Export trips.json</button>
+            <label class="btn">Import<input type="file" id="import-trips" accept=".json,application/json" hidden /></label>
+            <button type="button" id="reset-trips">Use bundled trips</button>
+          </div>
+          <div class="row">
+            <button type="button" id="export-cities">Export cities.json</button>
+            <label class="btn">Import<input type="file" id="import-cities" accept=".json,application/json" hidden /></label>
+            <button type="button" id="reset-cities">Use bundled cities</button>
+          </div>
           <div class="row">
             <button type="button" id="export-visited">Export visited.json</button>
             <label class="btn">Import<input type="file" id="visited-input" accept=".json,application/json" hidden /></label>

@@ -1,4 +1,4 @@
-# Flight Map
+# Travel Map
 
 A static website that maps your flights (from a myFlightradar24 export), your
 road trips, train journeys and cruises, and the

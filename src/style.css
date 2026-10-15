@@ -364,3 +364,14 @@ button.primary:hover { background: #ffbe5c; }
 .wp-add #wp-search { margin: 0; }
 .wp-role { display: inline-block; width: 44px; margin-right: 4px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; }
 .wp-list { list-style: none; padding-left: 0; }
+
+/* ---------------------------------------------------- details & lists */
+
+#details:not([hidden]) { margin-top: -4px; }
+#details .card { border-color: #3a4c6d; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.chip { font-size: 12px; padding: 3px 10px; border-radius: 999px; }
+.chip.on { border-color: var(--accent); background: rgba(255, 173, 51, 0.15); }
+.show-all { width: 100%; margin-top: 4px; font-size: 12px; }
+.sub-head { font-size: 13px; margin: 14px 0 4px; }
+#tab-flights .stats { margin-bottom: 10px; }
