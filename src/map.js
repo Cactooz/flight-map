@@ -166,12 +166,15 @@ export function createMap(container, { onHover, onClick, onMove }) {
           source: 'heat',
           layout: { visibility: 'none' },
           paint: {
-            // Line samples: weight grows with zoom as their on-screen spacing grows
-            // (x2 per zoom level), keeping a line's brightness roughly constant.
+            // Line samples are weighted by their on-screen spacing relative to the
+            // heatmap radius at each zoom (spacing doubles per zoom level), so a
+            // travelled line glows about as much as a visited place at any zoom.
             'heatmap-weight': [
               'interpolate', ['exponential', 2], ['zoom'],
-              0, ['case', ['has', 'step'], ['*', ['get', 'step'], 0.004], ['get', 'w']],
-              12, ['case', ['has', 'step'], ['min', 1.5, ['*', ['get', 'step'], 16.4]], ['get', 'w']],
+              0, ['case', ['has', 'step'], ['*', ['get', 'step'], 0.0032], ['get', 'w']],
+              5, ['case', ['has', 'step'], ['*', ['get', 'step'], 0.05], ['get', 'w']],
+              8, ['case', ['has', 'step'], ['*', ['get', 'step'], 0.25], ['get', 'w']],
+              12, ['case', ['has', 'step'], ['min', 6, ['*', ['get', 'step'], 2.6]], ['get', 'w']],
             ],
             // Radius, intensity and opacity are set from the layer settings (setHeatmap).
             'heatmap-opacity': 0.6,

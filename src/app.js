@@ -474,13 +474,13 @@ function heatGeoJson(trips, airports, cities = []) {
   // Places (cities, airports) carry a fixed weight; points sampled along trip
   // lines carry their spacing (`step`, km) and are weighted per kilometre in
   // the map style, so a long line doesn't outshine the places on it.
-  for (const c of cities) features.push({ type: 'Feature', properties: { w: 4 }, geometry: { type: 'Point', coordinates: [c.lon, c.lat] } });
+  for (const c of cities) features.push({ type: 'Feature', properties: { w: 3 }, geometry: { type: 'Point', coordinates: [c.lon, c.lat] } });
   for (const t of trips) {
     const step = Math.max(2, lineLengthKm(t.coords) / 4000);
     for (const p of sampleLine(t.coords, step)) features.push({ type: 'Feature', properties: { step }, geometry: { type: 'Point', coordinates: p } });
   }
   for (const a of airports) {
-    features.push({ type: 'Feature', properties: { w: Math.min(9, 3 + 1.5 * Math.sqrt(a.count)) }, geometry: { type: 'Point', coordinates: coord(a.code) } });
+    features.push({ type: 'Feature', properties: { w: Math.min(7, 2.5 + Math.sqrt(a.count)) }, geometry: { type: 'Point', coordinates: coord(a.code) } });
   }
   return { type: 'FeatureCollection', features };
 }
