@@ -57,7 +57,7 @@ const state = {
   citySource: 'bundled',
   cityAdd: false, // clicking the map adds a city
   cityResults: [],
-  cityForm: { date: '', mode: '' },
+  cityForm: { date: '', mode: '', days: '' },
   quickCity: false, // inline quick-add box in the Cities tab is open
   cityNote: '', // message after adding cities (e.g. duplicates skipped)
   view: { flights: true, trips: true, heat: false, allAirports: false, rail: false, basemap: 'flat', globe: false, cities: true, ...HEAT_DEFAULTS },
@@ -473,9 +473,11 @@ function heatGeoJson(trips, airports, cities = []) {
   // Places (cities, airports) carry a fixed weight; points sampled along trip
   // lines carry their spacing (`step`, km) and are weighted per kilometre in
   // the map style, so a long line doesn't outshine the places on it.
+  // A city glows in proportion to the days spent there (1 by default), the
+  // same way a route flown several times glows more.
   for (const c of cities) {
-    if (c.kind === 'airport') continue; // already counted through its airport
-    features.push({ type: 'Feature', properties: { w: 3 }, geometry: { type: 'Point', coordinates: [c.lon, c.lat] } });
+    if (c.kind === 'airport' && !c.days) continue; // a transfer: already counted through its airport
+    features.push({ type: 'Feature', properties: { w: 3 * Math.min(c.days || 1, 30) }, geometry: { type: 'Point', coordinates: [c.lon, c.lat] } });
   }
   for (const t of trips) {
     const step = Math.max(2, lineLengthKm(t.coords) / 4000);
@@ -860,7 +862,13 @@ function initPanel() {
       updateCity(id, { mode });
     }
     else if (action === 'city-add') addTypedCities();
-    else if (action === 'quick-city') {
+    else if (action === 'city-key') {
+      const c = allCities(true).find((x) => x.key === value);
+      if (c) {
+        select(c.cityId ? { city: c.cityId } : { cityKey: c.key });
+        M.flyTo([c.lon, c.lat], 6);
+      }
+    } else if (action === 'quick-city') {
       state.quickCity = true;
       state.cityNote = '';
       renderCities();
@@ -1076,7 +1084,9 @@ function renderOverview() {
         `🏙️ ${esc(c.name)}`,
         `${idx >= 0 ? esc(state.tcc[idx].name) : ''}${c.modes.size ? ` · ${modeIcons([...c.modes])}` : ''}`,
         `${c.airports.length ? `<p>✈️ Airports: ${c.airports.map((a) => `<a href="#" class="link-btn" data-action="airport" data-value="${a}">${a}</a> <span class="muted small">${esc(state.airports[a][0])}</span>`).join(', ')}</p>` : ''}
-         ${c.trips.length ? `<p>Trips: ${c.trips.map((t) => `<a href="#" class="link-btn" data-action="trip" data-value="${t.id}">${MODES[t.mode]?.icon || ''} ${esc(t.name || t.date)}</a>`).join(', ')}</p>` : ''}`,
+         ${c.trips.length ? `<p>Trips: ${c.trips.map((t) => `<a href="#" class="link-btn" data-action="trip" data-value="${t.id}">${MODES[t.mode]?.icon || ''} ${esc(t.name || t.date)}</a>`).join(', ')}</p>` : ''}
+         <div class="city-edit"><label>Days there <input type="number" min="1" max="999" step="1" data-city-key-days="${esc(c.key)}" value="${c.days || 1}" /></label>
+         <p class="muted small">More days make the city glow more on the heatmap.</p></div>`,
       );
       return;
     }
@@ -1091,6 +1101,7 @@ function renderOverview() {
         `${c.date ? esc(c.date) : 'No date'}${idx >= 0 ? ` · ${esc(state.tcc[idx].name)}` : ''}${c.mode ? ` · ${VISIT_MODES[c.mode]?.icon || ''} ${VISIT_MODES[c.mode]?.label || ''}` : ''}`,
         `<div class="city-edit">
           <label>Date <input type="date" data-city-date="${c.id}" value="${esc(c.date || '')}" /></label>
+          <label>Days there <input type="number" min="1" max="999" step="1" data-city-days="${c.id}" value="${+c.days || 1}" /></label>
           <p class="small muted">How you got there:</p>
           <div class="mode-btns">
             ${Object.entries(VISIT_MODES)
@@ -1450,8 +1461,15 @@ function initTripsTab() {
     }
   });
   $('#details').addEventListener('change', (ev) => {
-    const id = ev.target.dataset.cityDate;
-    if (id) updateCity(id, { date: ev.target.value });
+    const { cityDate, cityDays, cityKeyDays } = ev.target.dataset;
+    const days = Math.max(1, Math.round(+ev.target.value) || 1);
+    const value = ev.target.value;
+    // Re-render after the event: the input that fired it gets replaced.
+    setTimeout(() => {
+      if (cityDate) updateCity(cityDate, { date: value });
+      else if (cityDays) updateCity(cityDays, { days });
+      else if (cityKeyDays) setDerivedCityDays(cityKeyDays, days);
+    });
   });
   $('#cities-panel').addEventListener('keydown', (ev) => {
     if (ev.target.id !== 'quick-city') return;
@@ -1473,6 +1491,7 @@ function initTripsTab() {
   $('#city-form-box').addEventListener('change', (ev) => {
     if (ev.target.id === 'city-date') state.cityForm.date = ev.target.value;
     if (ev.target.id === 'city-mode') state.cityForm.mode = ev.target.value;
+    if (ev.target.id === 'city-days') state.cityForm.days = ev.target.value;
   });
 }
 
@@ -1511,7 +1530,7 @@ function knownCity(name, lon, lat) {
 }
 
 /** Adds cities, skipping ones already visited. Returns the names skipped. */
-function addCities(list, { mode = state.cityForm.mode, date = state.cityForm.date } = {}) {
+function addCities(list, { mode = state.cityForm.mode, date = state.cityForm.date, days = +state.cityForm.days || 1 } = {}) {
   const skipped = [];
   for (const r of list) {
     // Strip the airport code prefix search results get ("CPH · Copenhagen").
@@ -1521,7 +1540,7 @@ function addCities(list, { mode = state.cityForm.mode, date = state.cityForm.dat
       skipped.push(known.name);
       continue;
     }
-    state.cities.push({ id: uid(), name, lon: +(+r.lon).toFixed(5), lat: +(+r.lat).toFixed(5), date, mode });
+    state.cities.push({ id: uid(), name, lon: +(+r.lon).toFixed(5), lat: +(+r.lat).toFixed(5), date, mode, days });
   }
   state.cityResults = [];
   state.cityNote = skipped.length ? `Already visited, not added again: ${skipped.join(', ')}.` : '';
@@ -1542,7 +1561,20 @@ async function addCityAt(lon, lat) {
   addCity({ name, lon, lat });
 }
 
-/** Changes a city you added (date, travel mode) and saves it. */
+/** Days for a city that comes from a trip or flight: stored as an added city entry. */
+function setDerivedCityDays(key, days) {
+  const c = allCities(true).find((x) => x.key === key);
+  if (!c) return;
+  if (c.cityId) return updateCity(c.cityId, { days });
+  const id = uid();
+  state.cities.push({ id, name: c.name, lon: +c.lon.toFixed(5), lat: +c.lat.toFixed(5), date: '', mode: '', days });
+  saveCities();
+  evidenceCache = null;
+  update();
+  select({ city: id });
+}
+
+/** Changes a city you added (date, travel mode, days) and saves it. */
 function updateCity(id, changes) {
   const c = state.cities.find((x) => x.id === id);
   if (!c) return;
@@ -1586,7 +1618,7 @@ async function quickAddCities(text) {
     }
   }
   state.quickCity = false;
-  const dupes = found.length ? addCities(found, { mode: '', date: '' }) : [];
+  const dupes = found.length ? addCities(found, { mode: '', date: '', days: 1 }) : [];
   const all = [...skipped, ...dupes];
   state.cityNote = all.length ? `Not added (already visited or not found): ${all.join(', ')}.` : '';
   renderCities();
@@ -1622,6 +1654,7 @@ function renderCities() {
   $('#city-form-box').innerHTML = cityForm();
   $('#city-date').value = state.cityForm.date;
   $('#city-mode').value = state.cityForm.mode;
+  $('#city-days').value = state.cityForm.days || '';
 }
 
 async function runCitySearch(q) {
@@ -1646,6 +1679,7 @@ function cityForm() {
         <button type="button" data-action="city-add">Add</button>
       </div>
       <input id="city-date" type="date" title="Date (optional)" />
+      <input id="city-days" type="number" min="1" step="1" placeholder="Days (optional)" title="Days spent there (optional, default 1)" />
       <select id="city-mode" title="How you got there (optional)">
         <option value="">How? (optional)</option>
         ${Object.entries(VISIT_MODES).map(([k, m]) => `<option value="${k}">${m.icon} ${m.label}</option>`).join('')}
@@ -1686,7 +1720,7 @@ function allCities(allYears = false) {
     const key = cityKey(name);
     let hit = out.find((c) => c.key === key || distanceKm([c.lon, c.lat], [lon, lat]) < 5);
     if (!hit) {
-      hit = { name, key, lon, lat, via: new Set(), modes: new Set(), trips: [], airports: [], date: '' };
+      hit = { name, key, lon, lat, via: new Set(), modes: new Set(), trips: [], airports: [], date: '', days: 0 };
       out.push(hit);
     }
     hit.via.add(via);
@@ -1694,8 +1728,9 @@ function allCities(allYears = false) {
     if (extra.trip && !hit.trips.includes(extra.trip)) hit.trips.push(extra.trip);
     if (extra.airport) hit.airports.push(extra.airport);
     if (extra.cityId && !hit.cityId) Object.assign(hit, { cityId: extra.cityId, date: extra.date || '' });
+    if (extra.days) hit.days = Math.max(hit.days, extra.days);
   };
-  for (const c of state.cities) if (allYears || inYear(c.date)) add(c.name, c.lon, c.lat, 'city', c.mode, { cityId: c.id, date: c.date });
+  for (const c of state.cities) if (allYears || inYear(c.date)) add(c.name, c.lon, c.lat, 'city', c.mode, { cityId: c.id, date: c.date, days: +c.days || 0 });
   for (const t of allYears ? state.trips : filteredTrips()) for (const w of t.waypoints) add(w.name, w.lon, w.lat, 'trip', TRIP_TO_VISIT[t.mode], { trip: t });
   // Cities served by the airports you flew to, placed at the city itself.
   for (const a of allYears ? aggregate(state.flights).airports : state.agg.airports) {
@@ -1715,7 +1750,7 @@ function cityList() {
       return `<h2>All cities visited (${cities.length})</h2>
       <p class="muted small">From your trips, flights and the cities you added. The same city counts once.</p>
       <div class="city-chips">${cities
-        .map((c) => `<span class="pill" title="${[...c.via].join(', ')}">${modeIcons([...c.modes])} ${esc(c.name)}</span>`)
+        .map((c) => `<span class="pill" data-action="city-key" data-value="${esc(c.key)}" title="${[...c.via].join(', ')}${c.days ? ` · ${c.days} days` : ''}">${modeIcons([...c.modes])} ${esc(c.name)}${c.days > 1 ? ` <span class="muted">${c.days}d</span>` : ''}</span>`)
         .join('')}${
         state.quickCity
           ? `<input id="quick-city" class="quick-city" placeholder="City, city… then Enter" autocomplete="off" />`
@@ -1728,7 +1763,7 @@ function cityList() {
       ${list
         .map(
           (c) => `<div class="list-item" data-action="city" data-value="${c.id}">
-            <div><div>🏙️ ${esc(c.name)}</div><div class="sub">${esc(c.date || 'No date')} · ${c.mode ? `${VISIT_MODES[c.mode]?.icon || ''} ${VISIT_MODES[c.mode]?.label || ''}` : 'way unknown'} · <span class="link-btn">edit</span></div></div>
+            <div><div>🏙️ ${esc(c.name)}</div><div class="sub">${esc(c.date || 'No date')} · ${c.mode ? `${VISIT_MODES[c.mode]?.icon || ''} ${VISIT_MODES[c.mode]?.label || ''}` : 'way unknown'} · ${+c.days || 1} day${(+c.days || 1) === 1 ? '' : 's'} · <span class="link-btn">edit</span></div></div>
             <button type="button" class="close" data-action="delete-city" data-value="${c.id}" aria-label="Delete ${esc(c.name)}">✕</button>
           </div>`,
         )
@@ -2028,6 +2063,11 @@ function renderData() {
         .map((r) => esc(`${r.from.iata || r.from.icao || r.from.label} → ${r.to.iata || r.to.icao || r.to.label}`))
         .join(', ')}${bad.length > 8 ? '…' : ''}</p>`
     : '';
+}
+
+// Keep a copy of the site for offline use (see sw.js). Needs https or localhost.
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+  navigator.serviceWorker.register('sw.js').catch((err) => console.warn('Offline copy unavailable:', err));
 }
 
 init().catch((err) => {

@@ -64,6 +64,18 @@ npm run serve        # or: python3 -m http.server 8080
 Then open http://localhost:8080. It can be hosted as-is on GitHub Pages
 (Settings → Pages → deploy from branch, root folder).
 
+## Offline use
+
+After one visit online, the site works without internet: a service worker
+(`sw.js`) keeps a copy of the code and all data (map shapes, airports,
+flights, trips, cities, railway and sea-lane networks). Online, the newest
+files are always fetched first. With no connection the flat map, all points
+and their details still work; only OpenStreetMap tiles, place search and
+online road/rail routing need internet (train trips then use the bundled
+railway map). The site can also be installed as an app from the browser.
+When adding new files the site needs at runtime, add them to `FILES` in
+`sw.js`.
+
 ## Your data
 
 | File | What |
@@ -71,7 +83,7 @@ Then open http://localhost:8080. It can be hosted as-is on GitHub Pages
 | `data/flights.csv` | Flights shown by default. Same format as the myFlightradar24 export (Settings → Export flights). Notes, seats and flight reason were stripped from the bundled copy. |
 | `data/visited.json` | Destinations visited without a recorded flight or trip, and how: `{ "andorra": "car", "iceland": "boat" }` (`plane`, `car`, `train`, `boat` or `other`). Seeded from your TCC tracking spreadsheet (as `other`). |
 | `data/trips.json` | Road / rail / boat trips. Use *Trips → Export trips.json* on the site to produce it. |
-| `data/cities.json` | Cities you visited. Use *Trips → Export cities.json* to produce it. |
+| `data/cities.json` | Extra cities you visited, with optional date, travel mode and days spent (days scale the heatmap). Use *Add → Export cities.json* to produce it. |
 
 Anything you import, add or tick on the site is saved in that browser's local
 storage. To publish it, export the JSON files and replace the ones in `data/`.
