@@ -344,3 +344,9 @@ button.primary:hover { background: #ffbe5c; }
 .mode-btns button { font-size: 12px; padding: 4px 8px; }
 .mode-btns button.on { border-color: var(--manual); background: rgba(79, 124, 196, 0.25); }
 .small-seg button { font-size: 12px; padding: 4px 8px; }
+
+.sub-settings { display: grid; gap: 4px; padding: 2px 0 6px 24px; font-size: 12px; color: var(--muted); }
+.sub-settings label { display: grid !important; grid-template-columns: 62px 1fr; gap: 8px; align-items: center; }
+.sub-settings input[type='range'] { width: 100%; accent-color: var(--accent); }
+.sub-settings button { justify-self: start; font-size: 12px; padding: 2px 8px; }
+.sub-settings[hidden] { display: none; }

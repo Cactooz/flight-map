@@ -51,7 +51,7 @@ const state = {
   manual: new Map(), // destination id -> how it was visited ('plane' | 'car' | 'train' | 'boat' | 'other')
   year: 'all',
   sel: { airport: null, route: null, trip: null, dest: null, anyAirport: null },
-  view: { flights: true, trips: true, heat: false, allAirports: false, rail: false, basemap: 'flat', globe: false },
+  view: { flights: true, trips: true, heat: false, allAirports: false, rail: false, basemap: 'flat', globe: false, heatRadius: 8, heatIntensity: 0.4, heatOpacity: 0.6 },
   draft: null, // { id, mode, name, date, waypoints: [], clickToAdd }
   searchResults: [],
   countryFilter: 'all',
@@ -430,7 +430,7 @@ function heatGeoJson(trips, airports) {
     for (const p of sampleLine(t.coords, step)) features.push({ type: 'Feature', properties: { w: 1 }, geometry: { type: 'Point', coordinates: p } });
   }
   for (const a of airports) {
-    features.push({ type: 'Feature', properties: { w: Math.min(12, 2 + a.count) }, geometry: { type: 'Point', coordinates: coord(a.code) } });
+    features.push({ type: 'Feature', properties: { w: Math.min(4, 1 + a.count / 4) }, geometry: { type: 'Point', coordinates: coord(a.code) } });
   }
   return { type: 'FeatureCollection', features };
 }
@@ -521,6 +521,8 @@ function applyView() {
   document.body.classList.toggle('hide-labels', !v.flights);
   M.setVisible(['trips', 'trips-boat', 'trips-hit'], v.trips);
   M.setVisible('heat', v.heat);
+  M.setHeatmap({ radius: +v.heatRadius, intensity: +v.heatIntensity, opacity: +v.heatOpacity });
+  $('#heat-settings').hidden = !v.heat;
   M.setVisible('all-airports', v.allAirports);
   M.setVisible('rail', v.rail);
   M.setBasemap(v.basemap);
@@ -666,16 +668,31 @@ function initControls() {
     <label><input type="checkbox" data-view="flights" ${v.flights ? 'checked' : ''}/> Flights</label>
     <label><input type="checkbox" data-view="trips" ${v.trips ? 'checked' : ''}/> Road / rail / sea trips</label>
     <label><input type="checkbox" data-view="heat" ${v.heat ? 'checked' : ''}/> Heatmap</label>
+    <div id="heat-settings" class="sub-settings">
+      <label>Size <input type="range" data-view="heatRadius" min="2" max="40" step="1" value="${v.heatRadius}" /></label>
+      <label>Intensity <input type="range" data-view="heatIntensity" min="0.05" max="3" step="0.05" value="${v.heatIntensity}" /></label>
+      <label>Opacity <input type="range" data-view="heatOpacity" min="0.1" max="1" step="0.05" value="${v.heatOpacity}" /></label>
+      <button type="button" data-heat-reset>Reset</button>
+    </div>
     <label><input type="checkbox" data-view="allAirports" ${v.allAirports ? 'checked' : ''}/> All airports</label>
     <label><input type="checkbox" data-view="rail" ${v.rail ? 'checked' : ''}/> Railway lines</label>
     <label><input type="checkbox" data-view="globe" ${v.globe ? 'checked' : ''}/> Globe</label>
     <label class="basemap">Map <select data-view="basemap">${Object.entries(BASEMAPS)
       .map(([k, b]) => `<option value="${k}" ${k === v.basemap ? 'selected' : ''}>${b.label}</option>`)
       .join('')}</select></label>`;
-  $('#layers').addEventListener('change', (ev) => {
+  const onChange = (ev) => {
     const key = ev.target.dataset.view;
     if (!key) return;
     state.view[key] = ev.target.type === 'checkbox' ? ev.target.checked : ev.target.value;
+    applyView();
+  };
+  $('#layers').addEventListener('change', onChange);
+  // Sliders update live while dragging.
+  $('#layers').addEventListener('input', (ev) => ev.target.type === 'range' && onChange(ev));
+  $('#layers').addEventListener('click', (ev) => {
+    if (!ev.target.matches('[data-heat-reset]')) return;
+    Object.assign(state.view, { heatRadius: 8, heatIntensity: 0.4, heatOpacity: 0.6 });
+    for (const k of ['heatRadius', 'heatIntensity', 'heatOpacity']) $(`[data-view="${k}"]`).value = state.view[k];
     applyView();
   });
   $('#layers-toggle').onclick = () => $('#layers').classList.toggle('open');

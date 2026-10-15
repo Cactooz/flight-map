@@ -139,7 +139,15 @@ export function createMap(container, { onHover, onClick, onMove }) {
         },
         { id: 'land-hit', type: 'fill', source: 'land', filter: ['>=', ['get', 'idx'], 0], paint: { 'fill-color': '#000', 'fill-opacity': 0.001 } },
         { id: 'land-selected', type: 'line', source: 'land', filter: ['==', ['get', 'idx'], -2], paint: { 'line-color': '#fff', 'line-width': 2 } },
-        { id: 'rail', type: 'raster', source: 'rail', layout: { visibility: 'none' } },
+        // Railway network as neutral gray lines; lines you travelled on are drawn
+        // on top by the trips layer in the train colour.
+        {
+          id: 'rail',
+          type: 'raster',
+          source: 'rail',
+          layout: { visibility: 'none' },
+          paint: { 'raster-saturation': -1, 'raster-opacity': 0.5, 'raster-contrast': 0.2 },
+        },
         {
           id: 'dest-markers',
           type: 'circle',
@@ -158,9 +166,8 @@ export function createMap(container, { onHover, onClick, onMove }) {
           layout: { visibility: 'none' },
           paint: {
             'heatmap-weight': ['get', 'w'],
-            'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 0, 0.35, 9, 1.4],
-            'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 0, 4, 5, 14, 10, 28],
-            'heatmap-opacity': 0.8,
+            // Radius, intensity and opacity are set from the layer settings (setHeatmap).
+            'heatmap-opacity': 0.6,
             'heatmap-color': [
               'interpolate', ['linear'], ['heatmap-density'],
               0, 'rgba(0,0,0,0)', 0.15, '#3b0f70', 0.35, '#8c2981', 0.55, '#de4968', 0.8, '#fe9f6d', 1, '#fcfdbf',
@@ -324,6 +331,12 @@ export function createMap(container, { onHover, onClick, onMove }) {
     },
     setBasemap(name) {
       this.setVisible('basemap-osm', name === 'osm');
+    },
+    /** radius in px at zoom ~6, intensity multiplier, opacity 0–1. */
+    setHeatmap({ radius, intensity, opacity }) {
+      map.setPaintProperty('heat', 'heatmap-radius', ['interpolate', ['linear'], ['zoom'], 0, radius * 0.3, 6, radius, 12, radius * 2]);
+      map.setPaintProperty('heat', 'heatmap-intensity', ['interpolate', ['linear'], ['zoom'], 0, intensity * 0.4, 9, intensity * 1.5]);
+      map.setPaintProperty('heat', 'heatmap-opacity', opacity);
     },
     setProjection(type) {
       map.setProjection({ type });
