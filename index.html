@@ -38,6 +38,7 @@
           <button type="button" role="tab" data-tab="overview" aria-selected="true">Overview</button>
           <button type="button" role="tab" data-tab="countries" aria-selected="false">Countries</button>
           <button type="button" role="tab" data-tab="trips" aria-selected="false">Trips</button>
+          <button type="button" role="tab" data-tab="cities" aria-selected="false">Cities</button>
           <button type="button" role="tab" data-tab="data" aria-selected="false">Data</button>
         </nav>
 
@@ -65,6 +66,10 @@
             <p class="muted small">Pick how you visited a destination you didn't reach by a recorded flight or trip.</p>
           </div>
           <div id="country-list"></div>
+        </section>
+
+        <section class="tab" id="tab-cities" role="tabpanel" hidden>
+          <div id="cities-panel"></div>
         </section>
 
         <section class="tab" id="tab-trips" role="tabpanel" hidden>

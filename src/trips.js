@@ -50,19 +50,30 @@ async function routeRoad(waypoints) {
   return data.routes[0].geometry.coordinates;
 }
 
-async function routeTrain(waypoints) {
+async function routeTrainOnline(waypoints) {
   const coords = [];
   // BRouter's rail profile follows OpenStreetMap railway lines. One request per
   // leg keeps long trips within its distance limits.
   for (const [a, b] of pairs(waypoints)) {
     const url = `${BROUTER}?lonlats=${a.lon},${a.lat}|${b.lon},${b.lat}&profile=rail&alternativeidx=0&format=geojson`;
-    const data = await fetchJson(url, 30000);
+    const data = await fetchJson(url, 15000);
     const line = data.features?.[0]?.geometry?.coordinates;
     if (!line?.length) throw new Error('No rail route found');
     const leg = line.map(([x, y]) => [x, y]);
     coords.push(...(coords.length ? leg.slice(1) : leg));
   }
   return coords;
+}
+
+/** OpenStreetMap rail routing (BRouter) when reachable, else the bundled railway map. */
+async function routeTrain(waypoints) {
+  try {
+    return await routeTrainOnline(waypoints);
+  } catch (err) {
+    console.warn(`BRouter rail routing failed (${err.message}); using the offline railway map.`);
+    const { routeRailOffline } = await import('./rail.js');
+    return routeRailOffline(waypoints);
+  }
 }
 
 let searoutePromise = null;

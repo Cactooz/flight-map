@@ -57,6 +57,7 @@ const state = {
   citySource: 'bundled',
   cityAdd: false, // clicking the map adds a city
   cityResults: [],
+  cityForm: { date: '', mode: '' },
   view: { flights: true, trips: true, heat: false, allAirports: false, rail: false, basemap: 'flat', globe: false, cities: true, ...HEAT_DEFAULTS },
   draft: null, // { id, mode, name, date, waypoints: [], clickToAdd }
   searchResults: [],
@@ -842,6 +843,7 @@ function initPanel() {
       }
     } else if (action === 'city-result') addCity(state.cityResults[+value]);
     else if (action === 'delete-city') deleteCity(value);
+    else if (action === 'city-add') addTypedCities();
     else if (action === 'city-add-toggle') setCityAdd(!state.cityAdd);
     else if (action === 'reroute') rerouteStraight();
     else if (action === 'cancel-draft') cancelDraft();
@@ -988,6 +990,7 @@ function update() {
   renderOverview();
   renderCountries();
   renderTrips();
+  renderCities();
   renderData();
 }
 
@@ -1371,10 +1374,17 @@ function initTripsTab() {
       ev.preventDefault();
       addTypedStops();
     }
+  });
+  $('#tab-cities').addEventListener('keydown', (ev) => {
     if (ev.target.id === 'city-search' && ev.key === 'Enter') {
       ev.preventDefault();
-      runCitySearch(ev.target.value);
+      addTypedCities();
     }
+  });
+  // Keep the date / mode choice while adding several cities.
+  $('#tab-cities').addEventListener('change', (ev) => {
+    if (ev.target.id === 'city-date') state.cityForm.date = ev.target.value;
+    if (ev.target.id === 'city-mode') state.cityForm.mode = ev.target.value;
   });
 }
 
@@ -1399,16 +1409,20 @@ function setCityAdd(on) {
   if (on && state.draft) cancelDraft();
   $('#map-wrap').classList.toggle('adding', on);
   $('#adding-hint').textContent = on ? 'Click the map to add a city you visited' : 'Click the map or an airport to add a stop';
-  renderTrips();
+  renderCities();
 }
 
 function addCity(r) {
-  if (!r) return;
-  const mode = $('#city-mode')?.value || '';
-  const date = $('#city-date')?.value || '';
-  // Strip the airport code prefix search results get ("CPH · Copenhagen").
-  const name = String(r.name).replace(/^[A-Z0-9]{3} · /, '');
-  state.cities.push({ id: uid(), name, lon: +(+r.lon).toFixed(5), lat: +(+r.lat).toFixed(5), date, mode });
+  if (r) addCities([r]);
+}
+
+function addCities(list) {
+  const { mode, date } = state.cityForm;
+  for (const r of list) {
+    // Strip the airport code prefix search results get ("CPH · Copenhagen").
+    const name = String(r.name).replace(/^[A-Z0-9]{3} · /, '');
+    state.cities.push({ id: uid(), name, lon: +(+r.lon).toFixed(5), lat: +(+r.lat).toFixed(5), date, mode });
+  }
   state.cityResults = [];
   saveCities();
   evidenceCache = null;
@@ -1432,6 +1446,37 @@ function deleteCity(id) {
   update();
 }
 
+/** "Paris, Lyon" adds each city (best match); a single name shows matches to pick from. */
+async function addTypedCities() {
+  const input = $('#city-search');
+  const parts = splitStops(input?.value.trim() || '');
+  if (!parts.length) return;
+  if (parts.length === 1) return runCitySearch(parts[0]);
+  const box = $('#city-results');
+  const found = [];
+  for (const [i, q] of parts.entries()) {
+    box.innerHTML = `<p class="muted small">Looking up ${i + 1} / ${parts.length}: ${esc(q)}…</p>`;
+    try {
+      const res = await searchPlaces(q, state.airports);
+      if (!res.length) {
+        box.innerHTML = `<p class="warn">No place found for "${esc(q)}".</p>`;
+        return;
+      }
+      found.push(res[0]);
+    } catch (err) {
+      box.innerHTML = `<p class="warn">${esc(err.message)}</p>`;
+      return;
+    }
+  }
+  addCities(found);
+}
+
+function renderCities() {
+  $('#cities-panel').innerHTML = citiesSection();
+  $('#city-date').value = state.cityForm.date;
+  $('#city-mode').value = state.cityForm.mode;
+}
+
 async function runCitySearch(q) {
   const box = $('#city-results');
   box.innerHTML = '<p class="muted small">Searching…</p>';
@@ -1449,10 +1494,14 @@ function citiesSection() {
   const list = state.cities.slice().sort((a, b) => (b.date || '').localeCompare(a.date || '') || a.name.localeCompare(b.name));
   const stops = (state.cityPoints || []).filter((c) => c.kind === 'stop').length;
   return `
-    <h2>Cities</h2>
-    <p class="muted small">Cities you visited show as pink rings, trip stops as white rings. Both add to the heatmap; cities also mark their country as visited.</p>
+    <h2>Add cities you've visited</h2>
+    <p class="muted small">Type one or more cities separated by commas and press Enter. With one name you pick the right match; the date and travel mode (optional) apply to the cities you add.
+    Cities show as pink rings (trip stops as white rings), add to the heatmap and mark their country as visited.</p>
     <div class="city-form">
-      <input id="city-search" type="search" placeholder="Search a city, then Enter" autocomplete="off" />
+      <div class="wp-add full">
+        <input id="city-search" type="search" placeholder="e.g. Paris, Lyon, Kyoto" autocomplete="off" />
+        <button type="button" data-action="city-add">Add</button>
+      </div>
       <input id="city-date" type="date" title="Date (optional)" />
       <select id="city-mode" title="How you got there (optional)">
         <option value="">How? (optional)</option>
@@ -1724,8 +1773,7 @@ function renderTrips() {
               .join('')
           : '<p class="muted">No trips yet. Add a road trip, train journey or cruise, or import a GPX/KML/GeoJSON track below.</p>'
       }
-    </div>
-    ${citiesSection()}`;
+    </div>`;
 }
 
 function renderData() {

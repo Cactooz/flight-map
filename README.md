@@ -18,11 +18,13 @@ have visited, on an OpenStreetMap basemap.
   *Trips* tab. Add stops by searching (place names via OpenStreetMap, or
   airport codes) or by clicking the map. Each mode is routed differently:
   - **Road:** along roads, using OSRM.
-  - **Train:** along railway lines, using BRouter's rail profile.
+  - **Train:** along railway lines, using BRouter's rail profile (OpenStreetMap).
+    If BRouter can't be reached, the bundled world railway map
+    (`data/rail.json`, from Natural Earth) is used instead.
   - **Boat:** along shipping lanes, computed offline with `searoute-ts`.
 
   You can also import recorded tracks from GPX, KML or GeoJSON files.
-- **Cities:** add cities you've visited in the *Trips* tab, by searching or by
+- **Cities:** add cities you've visited in the *Cities* tab, by searching or by
   clicking the map, with an optional date and how you got there. They show as
   pink rings; every trip stop shows as a white ring, so trip lines connect
   city to city. Cities add to the heatmap and mark their country as visited.
