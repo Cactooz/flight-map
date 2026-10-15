@@ -285,6 +285,11 @@ function visitModes(idx) {
   return [...modes];
 }
 
+const shownManual = (id, status) => {
+  const m = state.manual.get(id) || '';
+  return m === 'other' && status === 'auto' ? '' : m;
+};
+
 const modeIcons = (modes) => modes.map((m) => VISIT_MODES[m]?.icon || '').join(' ');
 
 /** Sovereign countries visited: a territory (Crete, Tasmania…) also counts its parent country. */
@@ -1021,7 +1026,7 @@ function renderOverview() {
        <p class="small muted">${st === 'auto' ? 'Also visited (added manually):' : 'Visited by:'}</p>
        <div class="mode-btns">
          ${Object.entries(VISIT_MODES)
-           .map(([k, m]) => `<button type="button" class="${state.manual.get(t.id) === k ? 'on' : ''}" data-action="set-visit" data-value="${dest}:${k}">${m.icon} ${m.label}</button>`)
+           .map(([k, m]) => `<button type="button" class="${shownManual(t.id, st) === k ? 'on' : ''}" data-action="set-visit" data-value="${dest}:${k}">${m.icon} ${m.label}</button>`)
            .join('')}
          ${state.manual.has(t.id) ? `<button type="button" data-action="set-visit" data-value="${dest}:">Clear</button>` : ''}
        </div>`,
@@ -1147,7 +1152,8 @@ function renderTccList() {
     html.push(`<div class="region"><div class="region-head">${esc(region)}<span>${v} / ${list.length} · ${pct(v, list.length)}%</span></div>`);
     for (const t of shown) {
       const other = groupsOf(t).filter((r) => r !== region);
-      const manual = state.manual.get(t.id) || '';
+      // "Other / unknown" adds nothing when a flight or trip already shows how you got there.
+      const manual = shownManual(t.id, t.status);
       const autoModes = t.status === 'auto' ? visitModes(t.idx).filter((m) => m !== manual || !manual) : [];
       html.push(`<div class="country">
         <span class="name" data-focus="${t.idx}">${esc(t.name)}${other.length ? ` <span class="also" title="Also listed under ${esc(other.join(', '))}">+ ${esc(other.join(', '))}</span>` : ''}</span>
