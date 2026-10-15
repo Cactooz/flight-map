@@ -13,6 +13,7 @@ const LS_VISITED = 'flightmap.visited.v2';
 const LS_TRIPS = 'flightmap.trips.v1';
 const LS_CITIES = 'flightmap.cities.v1';
 const LS_VIEW = 'flightmap.view.v1';
+const HEAT_DEFAULTS = { heatRadius: 12, heatIntensity: 0.8, heatOpacity: 0.75 };
 
 // --------------------------------------------------------------- storage
 
@@ -56,7 +57,7 @@ const state = {
   citySource: 'bundled',
   cityAdd: false, // clicking the map adds a city
   cityResults: [],
-  view: { flights: true, trips: true, heat: false, allAirports: false, rail: false, basemap: 'flat', globe: false, cities: true, heatRadius: 8, heatIntensity: 0.4, heatOpacity: 0.6 },
+  view: { flights: true, trips: true, heat: false, allAirports: false, rail: false, basemap: 'flat', globe: false, cities: true, ...HEAT_DEFAULTS },
   draft: null, // { id, mode, name, date, waypoints: [], clickToAdd }
   searchResults: [],
   countryFilter: 'all',
@@ -194,7 +195,10 @@ async function init() {
   state.bundledVisited = normalizeVisited(visited, known);
   state.manual = applyVisitedChanges(state.bundledVisited, store.get(LS_VISITED, null), known);
   state.countryIdx = new Map(COUNTRIES.map((c) => [c.iso, c]));
-  Object.assign(state.view, store.get(LS_VIEW, {}));
+  const savedView = store.get(LS_VIEW, {});
+  // Earlier versions saved much weaker heatmap defaults; move those to the new ones.
+  if (+savedView.heatRadius === 8 && +savedView.heatIntensity === 0.4) Object.assign(savedView, HEAT_DEFAULTS);
+  Object.assign(state.view, savedView);
   if (!BASEMAPS[state.view.basemap]) state.view.basemap = 'flat'; // e.g. the removed CARTO map
 
   M = createMap($('#map'), { onHover, onClick, onMove: hideTooltip });
@@ -466,13 +470,16 @@ function citiesGeoJson(points) {
 
 function heatGeoJson(trips, airports, cities = []) {
   const features = [];
-  for (const c of cities) features.push({ type: 'Feature', properties: { w: 3 }, geometry: { type: 'Point', coordinates: [c.lon, c.lat] } });
+  // Places (cities, airports) carry a fixed weight; points sampled along trip
+  // lines carry their spacing (`step`, km) and are weighted per kilometre in
+  // the map style, so a long line doesn't outshine the places on it.
+  for (const c of cities) features.push({ type: 'Feature', properties: { w: 4 }, geometry: { type: 'Point', coordinates: [c.lon, c.lat] } });
   for (const t of trips) {
     const step = Math.max(2, lineLengthKm(t.coords) / 4000);
-    for (const p of sampleLine(t.coords, step)) features.push({ type: 'Feature', properties: { w: 1 }, geometry: { type: 'Point', coordinates: p } });
+    for (const p of sampleLine(t.coords, step)) features.push({ type: 'Feature', properties: { step }, geometry: { type: 'Point', coordinates: p } });
   }
   for (const a of airports) {
-    features.push({ type: 'Feature', properties: { w: Math.min(4, 1 + a.count / 4) }, geometry: { type: 'Point', coordinates: coord(a.code) } });
+    features.push({ type: 'Feature', properties: { w: Math.min(9, 3 + 1.5 * Math.sqrt(a.count)) }, geometry: { type: 'Point', coordinates: coord(a.code) } });
   }
   return { type: 'FeatureCollection', features };
 }
@@ -759,7 +766,7 @@ function initControls() {
   $('#layers').addEventListener('input', (ev) => ev.target.type === 'range' && onChange(ev));
   $('#layers').addEventListener('click', (ev) => {
     if (!ev.target.matches('[data-heat-reset]')) return;
-    Object.assign(state.view, { heatRadius: 8, heatIntensity: 0.4, heatOpacity: 0.6 });
+    Object.assign(state.view, { heatRadius: 12, heatIntensity: 0.8, heatOpacity: 0.75 });
     for (const k of ['heatRadius', 'heatIntensity', 'heatOpacity']) $(`[data-view="${k}"]`).value = state.view[k];
     applyView();
   });

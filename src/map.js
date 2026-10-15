@@ -166,12 +166,19 @@ export function createMap(container, { onHover, onClick, onMove }) {
           source: 'heat',
           layout: { visibility: 'none' },
           paint: {
-            'heatmap-weight': ['get', 'w'],
+            // Line samples: weight grows with zoom as their on-screen spacing grows
+            // (x2 per zoom level), keeping a line's brightness roughly constant.
+            'heatmap-weight': [
+              'interpolate', ['exponential', 2], ['zoom'],
+              0, ['case', ['has', 'step'], ['*', ['get', 'step'], 0.004], ['get', 'w']],
+              12, ['case', ['has', 'step'], ['min', 1.5, ['*', ['get', 'step'], 16.4]], ['get', 'w']],
+            ],
             // Radius, intensity and opacity are set from the layer settings (setHeatmap).
             'heatmap-opacity': 0.6,
             'heatmap-color': [
               'interpolate', ['linear'], ['heatmap-density'],
-              0, 'rgba(0,0,0,0)', 0.15, '#3b0f70', 0.35, '#8c2981', 0.55, '#de4968', 0.8, '#fe9f6d', 1, '#fcfdbf',
+              // Starts translucent pink rather than near-black, so single places stay visible.
+              0, 'rgba(0,0,0,0)', 0.08, 'rgba(236,72,153,0.35)', 0.3, 'rgba(244,63,94,0.75)', 0.55, '#fb923c', 0.8, '#facc15', 1, '#fef9c3',
             ],
           },
         },
@@ -348,8 +355,8 @@ export function createMap(container, { onHover, onClick, onMove }) {
     },
     /** radius in px at zoom ~6, intensity multiplier, opacity 0–1. */
     setHeatmap({ radius, intensity, opacity }) {
-      map.setPaintProperty('heat', 'heatmap-radius', ['interpolate', ['linear'], ['zoom'], 0, radius * 0.3, 6, radius, 12, radius * 2]);
-      map.setPaintProperty('heat', 'heatmap-intensity', ['interpolate', ['linear'], ['zoom'], 0, intensity * 0.4, 9, intensity * 1.5]);
+      map.setPaintProperty('heat', 'heatmap-radius', ['interpolate', ['linear'], ['zoom'], 0, radius * 0.5, 5, radius, 12, radius * 2.5]);
+      map.setPaintProperty('heat', 'heatmap-intensity', ['interpolate', ['linear'], ['zoom'], 0, intensity * 0.6, 9, intensity * 1.5]);
       map.setPaintProperty('heat', 'heatmap-opacity', opacity);
     },
     setProjection(type) {
