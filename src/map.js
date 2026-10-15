@@ -107,6 +107,7 @@ export function createMap(container, { onHover, onClick, onMove }) {
         airports: { type: 'geojson', data: EMPTY },
         allAirports: { type: 'geojson', data: EMPTY },
         draft: { type: 'geojson', data: EMPTY },
+        cities: { type: 'geojson', data: EMPTY },
       },
       layers: [
         { id: 'background', type: 'background', paint: { 'background-color': COLORS.ocean } },
@@ -191,6 +192,18 @@ export function createMap(container, { onHover, onClick, onMove }) {
           paint: { 'line-color': ['get', 'color'], 'line-width': ['interpolate', ['linear'], ['zoom'], 1, 1.4, 8, 3], 'line-dasharray': [2, 2], 'line-opacity': 0.85 },
         },
         { id: 'trips-hit', type: 'line', source: 'trips', paint: { 'line-color': '#000', 'line-opacity': 0.001, 'line-width': 12 } },
+        // Cities: hollow rings, so they read differently from airports (solid dots).
+        {
+          id: 'cities',
+          type: 'circle',
+          source: 'cities',
+          paint: {
+            'circle-radius': ['interpolate', ['linear'], ['zoom'], 1, 2.2, 6, 4, 10, 6],
+            'circle-color': '#0b1220',
+            'circle-stroke-color': ['match', ['get', 'kind'], 'manual', '#f9a8d4', '#f8fafc'],
+            'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 1, 1.2, 8, 2],
+          },
+        },
         {
           id: 'routes',
           type: 'line',
@@ -277,8 +290,8 @@ export function createMap(container, { onHover, onClick, onMove }) {
     map.addImage('loop', loopImage(), { sdf: true, pixelRatio: 2 });
   });
 
-  const hitLayers = ['draft-points', 'airports', 'all-airports', 'loops', 'arrows', 'routes-hit', 'trips-hit', 'dest-markers', 'land-hit'];
-  const kindOf = { airports: 'airport', 'all-airports': 'any-airport', 'routes-hit': 'route', arrows: 'route', loops: 'route', 'trips-hit': 'trip', 'dest-markers': 'dest', 'land-hit': 'dest', 'draft-points': 'draft' };
+  const hitLayers = ['draft-points', 'airports', 'all-airports', 'cities', 'loops', 'arrows', 'routes-hit', 'trips-hit', 'dest-markers', 'land-hit'];
+  const kindOf = { airports: 'airport', 'all-airports': 'any-airport', 'routes-hit': 'route', arrows: 'route', loops: 'route', 'trips-hit': 'trip', 'dest-markers': 'dest', 'land-hit': 'dest', 'draft-points': 'draft', cities: 'city' };
 
   function pick(point) {
     const layers = hitLayers.filter((id) => map.getLayer(id) && map.getLayoutProperty(id, 'visibility') !== 'none');

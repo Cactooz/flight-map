@@ -1,7 +1,7 @@
 import { parseFlightCsv, parseAirportField } from './csv.js';
 import { createMap, BASEMAPS } from './map.js';
 import { greatCircle, mercatorPx, distanceKm, lineLengthKm, sampleLine, createPolygonIndex } from './geo.js';
-import { MODES, routeTrip, searchPlaces, parseTrackFile } from './trips.js';
+import { MODES, routeTrip, searchPlaces, parseTrackFile, placeName } from './trips.js';
 import { COUNTRIES, CONTINENTS, TCC_CONTINENTS } from './countries.js';
 
 const d3 = window.d3;
@@ -11,6 +11,7 @@ const LS_FLIGHTS = 'flightmap.flights.v1';
 // v2 stores changes on top of data/visited.json instead of replacing it.
 const LS_VISITED = 'flightmap.visited.v2';
 const LS_TRIPS = 'flightmap.trips.v1';
+const LS_CITIES = 'flightmap.cities.v1';
 const LS_VIEW = 'flightmap.view.v1';
 
 // --------------------------------------------------------------- storage
@@ -50,8 +51,12 @@ const state = {
   tripSource: 'bundled',
   manual: new Map(), // destination id -> how it was visited ('plane' | 'car' | 'train' | 'boat' | 'other')
   year: 'all',
-  sel: { airport: null, route: null, trip: null, dest: null, anyAirport: null },
-  view: { flights: true, trips: true, heat: false, allAirports: false, rail: false, basemap: 'flat', globe: false, heatRadius: 8, heatIntensity: 0.4, heatOpacity: 0.6 },
+  sel: { airport: null, route: null, trip: null, dest: null, anyAirport: null, city: null },
+  cities: [], // cities you visited: { id, name, lon, lat, date, mode }
+  citySource: 'bundled',
+  cityAdd: false, // clicking the map adds a city
+  cityResults: [],
+  view: { flights: true, trips: true, heat: false, allAirports: false, rail: false, basemap: 'flat', globe: false, cities: true, heatRadius: 8, heatIntensity: 0.4, heatOpacity: 0.6 },
   draft: null, // { id, mode, name, date, waypoints: [], clickToAdd }
   searchResults: [],
   countryFilter: 'all',
@@ -155,13 +160,14 @@ function serializeRows(rows) {
 }
 
 async function init() {
-  const [airports, tcc, shapes, csvText, visited, trips] = await Promise.all([
+  const [airports, tcc, shapes, csvText, visited, trips, cities] = await Promise.all([
     loadJson('data/airports.json'),
     loadJson('data/tcc.json'),
     loadJson('data/tcc-shapes.json'),
     loadText('data/flights.csv').catch(() => ''),
     loadJson('data/visited.json').catch(() => []),
     loadJson('data/trips.json').catch(() => []),
+    loadJson('data/cities.json').catch(() => []),
   ]);
   state.airports = airports;
   for (const [iata, a] of Object.entries(airports)) if (a[5] && !state.icao.has(a[5])) state.icao.set(a[5], iata);
@@ -178,6 +184,11 @@ async function init() {
   const savedTrips = store.get(LS_TRIPS, null);
   if (savedTrips && Array.isArray(savedTrips.trips)) setTrips(savedTrips.trips, savedTrips.source || 'edited');
   else setTrips(trips, 'bundled');
+
+  state.bundledCities = cities;
+  const savedCities = store.get(LS_CITIES, null);
+  state.cities = savedCities?.cities || cities;
+  state.citySource = savedCities ? 'edited' : 'bundled';
 
   const known = new Set(tcc.map((t) => t.id));
   state.bundledVisited = normalizeVisited(visited, known);
@@ -248,7 +259,7 @@ function evidence() {
   const m = new Map();
   const add = (idx, kind, value) => {
     if (idx < 0) return;
-    if (!m.has(idx)) m.set(idx, { airports: new Set(), trips: new Set() });
+    if (!m.has(idx)) m.set(idx, { airports: new Set(), trips: new Set(), cities: new Set() });
     m.get(idx)[kind].add(value);
   };
   for (const f of state.flights) {
@@ -260,6 +271,9 @@ function evidence() {
     const ends = [...t.waypoints.map((w) => [w.lon, w.lat]), t.coords[0], t.coords[t.coords.length - 1]].filter(Boolean);
     for (const p of ends) add(state.tccAt.near(p), 'trips', t.id);
     if (t.mode !== 'boat') for (const p of sampleLine(t.coords, 8)) add(state.tccAt(p), 'trips', t.id);
+  }
+  for (const c of state.cities) {
+    add(state.tccAt.near([c.lon, c.lat]), 'cities', c.id);
   }
   evidenceCache = m;
   return m;
@@ -276,6 +290,7 @@ function visitModes(idx) {
   const modes = new Set();
   const e = evidence().get(idx);
   if (e?.airports.size) modes.add('plane');
+  for (const id of e?.cities || []) modes.add(state.cities.find((c) => c.id === id)?.mode || 'other');
   for (const id of e?.trips || []) {
     const t = state.trips.find((x) => x.id === id);
     if (t) modes.add(TRIP_TO_VISIT[t.mode] || 'other');
@@ -424,8 +439,34 @@ function tripsGeoJson(trips) {
   };
 }
 
-function heatGeoJson(trips, airports) {
+/**
+ * City dots: cities you added plus every trip stop, merged when within ~3 km
+ * (your own entry wins), so trip lines connect city to city.
+ */
+function cityPoints() {
+  const out = [];
+  const near = (p) => out.find((c) => distanceKm([c.lon, c.lat], p) < 3);
+  for (const c of state.cities) if (inYear(c.date)) out.push({ ...c, kind: 'manual', trips: [] });
+  for (const t of filteredTrips()) {
+    for (const w of t.waypoints) {
+      const hit = near([w.lon, w.lat]);
+      if (hit) hit.trips.push(t);
+      else out.push({ id: `stop:${t.id}:${w.lon},${w.lat}`, name: w.name, lon: w.lon, lat: w.lat, kind: 'stop', trips: [t] });
+    }
+  }
+  return out;
+}
+
+function citiesGeoJson(points) {
+  return {
+    type: 'FeatureCollection',
+    features: points.map((c) => ({ type: 'Feature', properties: { id: c.id, kind: c.kind }, geometry: { type: 'Point', coordinates: [c.lon, c.lat] } })),
+  };
+}
+
+function heatGeoJson(trips, airports, cities = []) {
   const features = [];
+  for (const c of cities) features.push({ type: 'Feature', properties: { w: 3 }, geometry: { type: 'Point', coordinates: [c.lon, c.lat] } });
   for (const t of trips) {
     const step = Math.max(2, lineLengthKm(t.coords) / 4000);
     for (const p of sampleLine(t.coords, step)) features.push({ type: 'Feature', properties: { w: 1 }, geometry: { type: 'Point', coordinates: p } });
@@ -495,7 +536,9 @@ function drawMovements() {
   M.setData('airports', airportsGeoJson(agg.airports));
   M.setAirportLabels(agg.airports.map((a) => ({ code: a.code, count: a.count, lngLat: coord(a.code) })));
   M.setData('trips', tripsGeoJson(trips));
-  M.setData('heat', heatGeoJson(trips, agg.airports));
+  state.cityPoints = cityPoints();
+  M.setData('cities', citiesGeoJson(state.cityPoints));
+  M.setData('heat', heatGeoJson(trips, agg.airports, state.cityPoints));
   applyHighlight();
   drawLegend(scales);
 }
@@ -521,6 +564,7 @@ function applyView() {
   M.setVisible(['routes', 'routes-hit', 'arrows', 'loops', 'airports'], v.flights);
   document.body.classList.toggle('hide-labels', !v.flights);
   M.setVisible(['trips', 'trips-boat', 'trips-hit'], v.trips);
+  M.setVisible('cities', v.cities);
   M.setVisible('heat', v.heat);
   M.setHeatmap({ radius: +v.heatRadius, intensity: +v.heatIntensity, opacity: +v.heatOpacity });
   $('#heat-settings').hidden = !v.heat;
@@ -542,6 +586,8 @@ function drawLegend(scales) {
       .filter(([k]) => modes.has(k))
       .map(([k, m]) => `<div><span class="ln ${k === 'boat' ? 'dashed' : ''}" style="--c:${m.color}"></span>${m.label}</div>`)
       .join('')}
+    <div><span class="ring" style="border-color:#f9a8d4"></span>City you visited</div>
+    <div><span class="ring"></span>Trip stop</div>
     <div><span class="sw" style="background:var(--auto)"></span>Visited (flights / trips)</div>
     <div><span class="sw" style="background:var(--manual)"></span>Visited (added manually)</div>
     <div><span class="sw" style="background:var(--auto);opacity:0.45"></span>Rest of a visited country</div>`;
@@ -615,6 +661,15 @@ function onHover(hit, ev) {
       `<div class="t-title">${esc(t.name)}</div><div class="t-sub">${esc(regionsOf(t).join(' · '))}</div>
        <div>${st ? `Visited ${modeIcons(visitModes(p.idx))}` : inCountry ? `Not visited (but you've been to ${esc(state.countryIdx.get(t.sov).name)})` : 'Not visited'}</div>`,
     );
+  } else if (hit.kind === 'city') {
+    const c = state.cityPoints.find((x) => x.id === p.id);
+    if (!c) return hideTooltip();
+    showTooltip(
+      ev,
+      `<div class="t-title">${esc(c.name)}</div>
+       <div class="t-sub">${c.kind === 'manual' ? `City you visited${c.date ? ` · ${esc(c.date)}` : ''}` : 'Trip stop'}</div>
+       ${c.trips.length ? `<div class="t-sub">${c.trips.map((t) => `${MODES[t.mode]?.icon || ''} ${esc(t.name || t.date)}`).join('<br>')}</div>` : ''}`,
+    );
   } else if (hit.kind === 'draft') {
     const w = state.draft?.waypoints[p.i];
     if (w) showTooltip(ev, `<div class="t-title">${p.i + 1}. ${esc(w.name)}</div>`);
@@ -636,7 +691,18 @@ function onClick(hit, ev) {
     }
     return;
   }
+  if (state.cityAdd && (!hit || hit.kind === 'dest')) {
+    const { lng, lat } = ev.lngLat.wrap();
+    addCityAt(+lng.toFixed(5), +lat.toFixed(5));
+    return;
+  }
   if (!hit) return clearSelection();
+  if (hit.kind === 'city') {
+    const c = state.cityPoints.find((x) => x.id === hit.props.id);
+    if (c?.kind === 'manual') select({ city: c.id });
+    else if (c?.trips.length) select({ trip: c.trips[0].id });
+    return;
+  }
   if (hit.kind === 'airport') selectAirport(hit.props.code);
   else if (hit.kind === 'any-airport') select({ anyAirport: hit.props.code });
   else if (hit.kind === 'route') select({ route: hit.props.key });
@@ -647,7 +713,7 @@ function onClick(hit, ev) {
 // ------------------------------------------------------------- selection
 
 function select(sel) {
-  state.sel = { airport: null, route: null, trip: null, dest: null, anyAirport: null, ...sel };
+  state.sel = { airport: null, route: null, trip: null, dest: null, anyAirport: null, city: null, ...sel };
   applyHighlight();
   if (!state.draft) showTab('overview');
   renderOverview();
@@ -668,6 +734,7 @@ function initControls() {
   $('#layers').innerHTML = `
     <label><input type="checkbox" data-view="flights" ${v.flights ? 'checked' : ''}/> Flights</label>
     <label><input type="checkbox" data-view="trips" ${v.trips ? 'checked' : ''}/> Road / rail / sea trips</label>
+    <label><input type="checkbox" data-view="cities" ${v.cities ? 'checked' : ''}/> Cities</label>
     <label><input type="checkbox" data-view="heat" ${v.heat ? 'checked' : ''}/> Heatmap</label>
     <div id="heat-settings" class="sub-settings">
       <label>Size <input type="range" data-view="heatRadius" min="2" max="40" step="1" value="${v.heatRadius}" /></label>
@@ -760,6 +827,15 @@ function initPanel() {
     } else if (action === 'delete-trip') deleteTrip(value);
     else if (action === 'edit-trip') editTrip(value);
     else if (action === 'new-trip') startDraft();
+    else if (action === 'city') {
+      const c = state.cities.find((x) => x.id === value);
+      if (c) {
+        select({ city: c.id });
+        M.flyTo([c.lon, c.lat], 7);
+      }
+    } else if (action === 'city-result') addCity(state.cityResults[+value]);
+    else if (action === 'delete-city') deleteCity(value);
+    else if (action === 'city-add-toggle') setCityAdd(!state.cityAdd);
     else if (action === 'reroute') rerouteStraight();
     else if (action === 'cancel-draft') cancelDraft();
     else if (action === 'save-draft') saveDraft();
@@ -889,7 +965,7 @@ function focusDestination(idx) {
 }
 
 function buildYearFilter() {
-  const dates = [...state.flights.map((f) => f.date), ...state.trips.map((t) => t.date)];
+  const dates = [...state.flights.map((f) => f.date), ...state.trips.map((t) => t.date), ...state.cities.map((c) => c.date)];
   const years = [...new Set(dates.map((d) => (d || '').slice(0, 4)).filter(Boolean))].sort().reverse();
   const sel = $('#year-filter');
   sel.innerHTML = `<option value="all">All years</option>${years.map((y) => `<option value="${y}">${y}</option>`).join('')}`;
@@ -949,7 +1025,21 @@ function renderOverview() {
   const el = $('#tab-overview');
   const { routes } = state.agg;
   const { airport, route, trip, dest, anyAirport } = state.sel;
-  if (airport || route || trip || dest != null || anyAirport) $('#panel').scrollTop = 0;
+  const { city } = state.sel;
+  if (airport || route || trip || dest != null || anyAirport || city) $('#panel').scrollTop = 0;
+
+  if (city) {
+    const c = state.cities.find((x) => x.id === city);
+    if (c) {
+      const idx = state.tccAt.near([c.lon, c.lat]);
+      el.innerHTML = card(
+        `🏙️ ${esc(c.name)}`,
+        `${c.date ? esc(c.date) : 'No date'}${idx >= 0 ? ` · ${esc(state.tcc[idx].name)}` : ''}${c.mode ? ` · ${VISIT_MODES[c.mode]?.icon || ''} ${VISIT_MODES[c.mode]?.label || ''}` : ''}`,
+        `<div class="row"><button type="button" data-action="delete-city" data-value="${c.id}">Delete city</button></div>`,
+      );
+      return;
+    }
+  }
 
   if (route) {
     const r = findRoute(route);
@@ -1034,12 +1124,14 @@ function renderOverview() {
     const ev = evidence().get(dest);
     const via = ev ? [...ev.airports] : [];
     const tripList = ev ? [...ev.trips].map((id) => state.trips.find((x) => x.id === id)).filter(Boolean) : [];
+    const cityList = ev ? [...ev.cities].map((id) => state.cities.find((x) => x.id === id)).filter(Boolean) : [];
     el.innerHTML = card(
       esc(t.name),
       esc(regionsOf(t).join(' · ')),
       `${t.part ? `<p class="muted small">Part of ${esc(state.countryIdx.get(t.sov).name)}.</p>` : ''}
        ${via.length ? `<p>Flew to ${via.map((c) => `<a href="#" class="link-btn" data-action="airport" data-value="${c}">${c}</a>`).join(', ')}.</p>` : ''}
        ${tripList.length ? `<p>Trips: ${tripList.map((x) => `<a href="#" class="link-btn" data-action="trip" data-value="${x.id}">${esc(x.name || x.date || 'trip')}</a>`).join(', ')}.</p>` : ''}
+       ${cityList.length ? `<p>Cities: ${cityList.map((c) => `<a href="#" class="link-btn" data-action="city" data-value="${c.id}">${esc(c.name)}</a>`).join(', ')}.</p>` : ''}
        ${st === '' ? '<p>Not visited yet.</p>' : ''}
        <p class="small muted">${st === 'auto' ? 'Also visited (added manually):' : 'Visited by:'}</p>
        <div class="mode-btns">
@@ -1234,6 +1326,30 @@ function initTripsTab() {
       $('#trip-msg').innerHTML = `<p class="warn">${esc(err.message)}</p>`;
     }
   };
+  $('#export-cities').onclick = () => download('cities.json', JSON.stringify(state.cities, null, 1) + '\n');
+  $('#import-cities').onchange = async (ev) => {
+    const file = ev.target.files[0];
+    ev.target.value = '';
+    if (!file) return;
+    try {
+      const cities = JSON.parse(await file.text());
+      if (!Array.isArray(cities)) throw new Error('Expected a JSON array of cities.');
+      state.cities = cities;
+      saveCities();
+      evidenceCache = null;
+      buildYearFilter();
+      update();
+    } catch (err) {
+      $('#trip-msg').innerHTML = `<p class="warn">${esc(err.message)}</p>`;
+    }
+  };
+  $('#reset-cities').onclick = () => {
+    store.set(LS_CITIES, null);
+    state.cities = state.bundledCities;
+    state.citySource = 'bundled';
+    evidenceCache = null;
+    update();
+  };
   $('#reset-trips').onclick = () => {
     store.set(LS_TRIPS, null);
     setTrips(state.bundledTrips, 'bundled');
@@ -1247,6 +1363,10 @@ function initTripsTab() {
       ev.preventDefault();
       runSearch(ev.target.value);
     }
+    if (ev.target.id === 'city-search' && ev.key === 'Enter') {
+      ev.preventDefault();
+      runCitySearch(ev.target.value);
+    }
   });
 }
 
@@ -1259,7 +1379,95 @@ function onDraftInput(ev) {
   if (f === 'mode' && ev.type === 'change') renderTrips();
 }
 
+// ---------------------------------------------------------------- cities
+
+function saveCities() {
+  state.citySource = 'edited';
+  if (!store.set(LS_CITIES, { cities: state.cities })) alert('Could not save cities in this browser. Export cities.json to keep them.');
+}
+
+function setCityAdd(on) {
+  state.cityAdd = on;
+  if (on && state.draft) cancelDraft();
+  $('#map-wrap').classList.toggle('adding', on);
+  $('#adding-hint').textContent = on ? 'Click the map to add a city you visited' : 'Click the map or an airport to add a stop';
+  renderTrips();
+}
+
+function addCity(r) {
+  if (!r) return;
+  const mode = $('#city-mode')?.value || '';
+  const date = $('#city-date')?.value || '';
+  // Strip the airport code prefix search results get ("CPH · Copenhagen").
+  const name = String(r.name).replace(/^[A-Z0-9]{3} · /, '');
+  state.cities.push({ id: uid(), name, lon: +(+r.lon).toFixed(5), lat: +(+r.lat).toFixed(5), date, mode });
+  state.cityResults = [];
+  saveCities();
+  evidenceCache = null;
+  buildYearFilter();
+  update();
+}
+
+async function addCityAt(lon, lat) {
+  const idx = state.tccAt([lon, lat]);
+  const name = (await placeName(lon, lat)) || `${idx >= 0 ? `${state.tcc[idx].name} ` : ''}(${lat.toFixed(3)}, ${lon.toFixed(3)})`;
+  addCity({ name, lon, lat });
+}
+
+function deleteCity(id) {
+  const c = state.cities.find((x) => x.id === id);
+  if (!c || !confirm(`Delete city "${c.name}"?`)) return;
+  state.cities = state.cities.filter((x) => x.id !== id);
+  saveCities();
+  evidenceCache = null;
+  state.sel.city = null;
+  update();
+}
+
+async function runCitySearch(q) {
+  const box = $('#city-results');
+  box.innerHTML = '<p class="muted small">Searching…</p>';
+  try {
+    state.cityResults = await searchPlaces(q, state.airports);
+    box.innerHTML = state.cityResults
+      .map((r, i) => `<div class="list-item" data-action="city-result" data-value="${i}"><div><div>${esc(r.name)}</div><div class="sub">${esc(r.detail)}</div></div><span class="pill">+</span></div>`)
+      .join('');
+  } catch (err) {
+    box.innerHTML = `<p class="warn">${esc(err.message)}</p>`;
+  }
+}
+
+function citiesSection() {
+  const list = state.cities.slice().sort((a, b) => (b.date || '').localeCompare(a.date || '') || a.name.localeCompare(b.name));
+  const stops = (state.cityPoints || []).filter((c) => c.kind === 'stop').length;
+  return `
+    <h2>Cities</h2>
+    <p class="muted small">Cities you visited show as pink rings, trip stops as white rings. Both add to the heatmap; cities also mark their country as visited.</p>
+    <div class="city-form">
+      <input id="city-search" type="search" placeholder="Search a city, then Enter" autocomplete="off" />
+      <input id="city-date" type="date" title="Date (optional)" />
+      <select id="city-mode" title="How you got there (optional)">
+        <option value="">How? (optional)</option>
+        ${Object.entries(VISIT_MODES).map(([k, m]) => `<option value="${k}">${m.icon} ${m.label}</option>`).join('')}
+      </select>
+      <button type="button" data-action="city-add-toggle" class="${state.cityAdd ? 'on' : ''}">${state.cityAdd ? 'Done clicking' : 'Click map to add'}</button>
+    </div>
+    <div id="city-results" class="list"></div>
+    <div class="list">
+      ${list
+        .map(
+          (c) => `<div class="list-item" data-action="city" data-value="${c.id}">
+            <div><div>🏙️ ${esc(c.name)}</div><div class="sub">${esc(c.date || 'No date')}${c.mode ? ` · ${VISIT_MODES[c.mode]?.icon || ''}` : ''}</div></div>
+            <button type="button" class="close" data-action="delete-city" data-value="${c.id}" aria-label="Delete ${esc(c.name)}">✕</button>
+          </div>`,
+        )
+        .join('') || `<p class="muted small">No cities added yet${stops ? ` (${stops} trip stops shown automatically)` : ''}.</p>`}
+    </div>`;
+}
+
 function startDraft(base) {
+  if (state.cityAdd) setCityAdd(false);
+  $('#adding-hint').textContent = 'Click the map or an airport to add a stop';
   state.draft = base || { id: null, mode: 'road', name: '', date: '', waypoints: [], clickToAdd: true };
   state.searchResults = [];
   $('#map-wrap').classList.toggle('adding', state.draft.clickToAdd);
@@ -1379,7 +1587,7 @@ function deleteTrip(id) {
   state.trips = state.trips.filter((x) => x.id !== id);
   saveTrips();
   evidenceCache = null;
-  state.sel = { airport: null, route: null, trip: null, dest: null, anyAirport: null };
+  state.sel = { airport: null, route: null, trip: null, dest: null, anyAirport: null, city: null };
   update();
 }
 
@@ -1456,7 +1664,8 @@ function renderTrips() {
               .join('')
           : '<p class="muted">No trips yet. Add a road trip, train journey or cruise, or import a GPX/KML/GeoJSON track below.</p>'
       }
-    </div>`;
+    </div>
+    ${citiesSection()}`;
 }
 
 function renderData() {
@@ -1464,6 +1673,7 @@ function renderData() {
   $('#flight-source').innerHTML = `${src} ${state.flights.length} flights loaded.`;
   $('#reset-flights').hidden = state.flightSource === 'bundled';
   $('#reset-trips').hidden = state.tripSource === 'bundled';
+  $('#reset-cities').hidden = state.citySource === 'bundled';
   const bad = state.unresolved;
   $('#import-warnings').innerHTML = bad.length
     ? `<p class="warn">${bad.length} flight(s) skipped, unknown airport: ${bad

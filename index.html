@@ -83,11 +83,16 @@
             <label class="btn">Choose file<input type="file" id="trip-file" accept=".gpx,.kml,.json,.geojson" hidden /></label>
           </div>
           <h2>Save &amp; share</h2>
-          <p class="muted small">Trips are stored in this browser. Export them to <code>data/trips.json</code> to publish them with the site.</p>
+          <p class="muted small">Trips and cities are stored in this browser. Export them to <code>data/trips.json</code> and <code>data/cities.json</code> to publish them with the site.</p>
           <div class="row">
             <button type="button" id="export-trips">Export trips.json</button>
             <label class="btn">Import trips.json<input type="file" id="import-trips" accept=".json,application/json" hidden /></label>
             <button type="button" id="reset-trips">Use bundled trips</button>
+          </div>
+          <div class="row">
+            <button type="button" id="export-cities">Export cities.json</button>
+            <label class="btn">Import cities.json<input type="file" id="import-cities" accept=".json,application/json" hidden /></label>
+            <button type="button" id="reset-cities">Use bundled cities</button>
           </div>
         </section>
 

@@ -352,3 +352,10 @@ button.primary:hover { background: #ffbe5c; }
 .sub-settings input[type='range'] { width: 100%; accent-color: var(--accent); }
 .sub-settings button { justify-self: start; font-size: 12px; padding: 2px 8px; }
 .sub-settings[hidden] { display: none; }
+
+.city-form { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 6px; }
+.city-form #city-search { grid-column: 1 / -1; }
+.city-form select, .city-form input { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; min-width: 0; }
+.city-form button { grid-column: 1 / -1; }
+.city-form button.on { border-color: var(--accent); background: rgba(255, 173, 51, 0.15); }
+#legend .ring { display: inline-block; width: 8px; height: 8px; border: 2px solid #f8fafc; border-radius: 50%; background: #0b1220; margin: 0 8px 0 2px; vertical-align: -1px; }

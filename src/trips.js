@@ -14,6 +14,7 @@ export const MODES = {
 const OSRM = 'https://router.project-osrm.org/route/v1/driving/';
 const BROUTER = 'https://brouter.de/brouter';
 const NOMINATIM = 'https://nominatim.openstreetmap.org/search';
+const NOMINATIM_REVERSE = 'https://nominatim.openstreetmap.org/reverse';
 
 // Keeps stored routes small: ~100 m tolerance.
 const SIMPLIFY_DEG = 0.001;
@@ -103,6 +104,17 @@ export function tripLengthKm(trip) {
 }
 
 /** Place search: IATA codes from the local airport list, then OSM Nominatim. */
+/** Name of the town/city at a point (OSM Nominatim), or null if unavailable. */
+export async function placeName(lon, lat) {
+  try {
+    const r = await fetchJson(`${NOMINATIM_REVERSE}?format=jsonv2&zoom=10&lat=${lat}&lon=${lon}`, 8000);
+    const a = r.address || {};
+    return a.city || a.town || a.village || a.municipality || r.name || null;
+  } catch {
+    return null;
+  }
+}
+
 export async function searchPlaces(query, airports) {
   const q = query.trim();
   if (!q) return [];

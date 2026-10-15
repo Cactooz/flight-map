@@ -22,6 +22,10 @@ have visited, on an OpenStreetMap basemap.
   - **Boat:** along shipping lanes, computed offline with `searoute-ts`.
 
   You can also import recorded tracks from GPX, KML or GeoJSON files.
+- **Cities:** add cities you've visited in the *Trips* tab, by searching or by
+  clicking the map, with an optional date and how you got there. They show as
+  pink rings; every trip stop shows as a white ring, so trip lines connect
+  city to city. Cities add to the heatmap and mark their country as visited.
 - **Heatmap:** shows where you have been most, built from points along your
   trips and the airports you used.
 - **Countries:** the 330-entry TCC list.
@@ -64,6 +68,7 @@ Then open http://localhost:8080. It can be hosted as-is on GitHub Pages
 | `data/flights.csv` | Flights shown by default. Same format as the myFlightradar24 export (Settings → Export flights). Notes, seats and flight reason were stripped from the bundled copy. |
 | `data/visited.json` | Destinations visited without a recorded flight or trip, and how: `{ "andorra": "car", "iceland": "boat" }` (`plane`, `car`, `train`, `boat` or `other`). Seeded from your TCC tracking spreadsheet (as `other`). |
 | `data/trips.json` | Road / rail / boat trips. Use *Trips → Export trips.json* on the site to produce it. |
+| `data/cities.json` | Cities you visited. Use *Trips → Export cities.json* to produce it. |
 
 Anything you import, add or tick on the site is saved in that browser's local
 storage. To publish it, export the JSON files and replace the ones in `data/`.
